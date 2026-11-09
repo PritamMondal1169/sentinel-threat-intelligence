@@ -1,0 +1,4 @@
+# demo / offline blocklist
+sbi-kyc-update.top
+hdfc-rewards-claim.xyz
+indiapost-redelivery.click
