@@ -39,6 +39,7 @@ backend/data/*.db
 backend/data/*.sqlite
 *.db-journal
 *.db-wal
+*.db-shm
 
 # Hardhat / Node / Contract artifacts
 node_modules/

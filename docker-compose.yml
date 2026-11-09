@@ -8,8 +8,9 @@ services:
     env_file:
       - .env
     environment:
-      - SENTINEL_OFFLINE=${SENTINEL_OFFLINE:-true}
-      - SENTINEL_SEED=${SENTINEL_SEED:-true}
+      - SENTINEL_OFFLINE=${SENTINEL_OFFLINE:-false}
+      - SENTINEL_SEED=${SENTINEL_SEED:-false}
+      - SENTINEL_REQUIRE_AUTH=${SENTINEL_REQUIRE_AUTH:-true}
       - SENTINEL_DB_PATH=/app/data/sentinel.db
       - SENTINEL_LOG_LEVEL=${SENTINEL_LOG_LEVEL:-INFO}
     volumes:

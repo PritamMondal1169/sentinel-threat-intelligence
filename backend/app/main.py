@@ -73,12 +73,8 @@ def rate_limit(limit: int):
 
 
 def auth(request: Request):
-    """API key verification fallback or JWT Bearer check."""
-    key = os.getenv("SENTINEL_API_KEY")
-    if key and request.headers.get("x-api-key") != key:
-        auth_hdr = request.headers.get("authorization", "")
-        if not auth_hdr.lower().startswith("bearer "):
-            raise HTTPException(401, {"code": "UNAUTHORIZED", "message": "Missing or invalid API key or Bearer token"})
+    """Backward compatible auth alias enforcing analyst/admin privileges."""
+    return require_role("analyst")
 
 
 @app.exception_handler(HTTPException)
@@ -227,7 +223,7 @@ def check_job_status(job_id: str):
 
 
 # --- Investigations (Modules 1, 2, 3) ---
-@app.post("/api/v1/investigations/url", dependencies=[Depends(rate_limit(20)), Depends(auth)])
+@app.post("/api/v1/investigations/url", dependencies=[Depends(rate_limit(20))])
 def inv_url(b: UrlIn, sync: bool = Query(default=True)):
     if not sync:
         # Submit async background job per PRD Section 13
@@ -252,7 +248,7 @@ def inv_url(b: UrlIn, sync: bool = Query(default=True)):
         raise HTTPException(400, {"code": "URL_BLOCKED", "message": e.reason})
 
 
-@app.post("/api/v1/investigations/message", dependencies=[Depends(rate_limit(20)), Depends(auth)])
+@app.post("/api/v1/investigations/message", dependencies=[Depends(rate_limit(20))])
 def inv_msg(b: MsgIn, sync: bool = Query(default=True)):
     if not sync:
         def _task():
@@ -347,7 +343,7 @@ def graph(
 
 
 # --- Website Security Assessment & Monitoring (Module 5) ---
-@app.post("/api/v1/website-assessment", dependencies=[Depends(rate_limit(10)), Depends(auth)])
+@app.post("/api/v1/website-assessment", dependencies=[Depends(rate_limit(10)), Depends(require_role("analyst"))])
 def assess(b: AssessIn):
     try:
         return S.assess_website(b.url, b.ownership_declared)
@@ -357,7 +353,7 @@ def assess(b: AssessIn):
         raise HTTPException(503, {"code": "OFFLINE", "message": str(e)})
 
 
-@app.post("/api/v1/monitoring", dependencies=[Depends(auth)])
+@app.post("/api/v1/monitoring", dependencies=[Depends(require_role("analyst"))])
 def create_monitoring(b: MonitoringIn):
     if not b.ownership_declared:
         raise HTTPException(400, {"code": "OWNERSHIP_REQUIRED", "message": "Monitoring requires an ownership declaration."})
@@ -370,7 +366,7 @@ def list_monitoring():
 
 
 # --- Decentralized Threat Intelligence & Blockchain Verification (Module 6) ---
-@app.post("/api/v1/investigations/{iid}/report", dependencies=[Depends(auth)])
+@app.post("/api/v1/investigations/{iid}/report", dependencies=[Depends(require_role("analyst"))])
 def make_report(iid: str):
     if iid not in S.invs:
         raise HTTPException(404, {"code": "NOT_FOUND", "message": "Unknown investigation"})
@@ -403,7 +399,7 @@ def get_report(rid: str):
     }
 
 
-@app.post("/api/v1/reports/{rid}/commit", dependencies=[Depends(auth)])
+@app.post("/api/v1/reports/{rid}/commit", dependencies=[Depends(require_role("analyst"))])
 def commit(rid: str):
     r = S.reports.get(rid) or S.storage.get_report(rid)
     if not r:

@@ -1,8 +1,15 @@
 """Production hardening tests for SENTINEL.
 Tests JWT authentication, password hashing, RBAC, async background jobs, and security headers.
 """
+import os
+os.environ["SENTINEL_OFFLINE"] = "true"
+import sys
 import time
+from pathlib import Path
 import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from app.auth import (
     create_access_token,
     verify_token,
@@ -116,4 +123,49 @@ class TestAsyncBackgroundJobs:
         data = response.body.decode("utf-8")
         assert "job_id" in data
         assert "pending" in data
+
+
+class TestHttpRbacEnforcement:
+    def setup_method(self):
+        from app.auth import require_role, get_current_user
+        self.require_role = require_role
+        self.get_current_user = get_current_user
+        self.admin_user = {"sub": "admin_test", "role": "admin"}
+        self.analyst_user = {"sub": "analyst_test", "role": "analyst"}
+        self.viewer_user = {"sub": "viewer_test", "role": "viewer"}
+
+    def test_unauthenticated_request_fails_401(self):
+        with pytest.raises(HTTPException) as exc:
+            self.get_current_user(None)
+        assert exc.value.status_code == 401
+        assert exc.value.detail["code"] == "UNAUTHORIZED"
+
+    def test_authenticated_user_passes_get_current_user(self):
+        user = self.get_current_user(self.analyst_user)
+        assert user["sub"] == "analyst_test"
+        assert user["role"] == "analyst"
+
+    def test_analyst_forbidden_from_admin_role(self):
+        admin_guard = self.require_role("admin")
+        with pytest.raises(HTTPException) as exc:
+            admin_guard(self.analyst_user)
+        assert exc.value.status_code == 403
+        assert exc.value.detail["code"] == "FORBIDDEN"
+
+    def test_admin_allowed_by_admin_role(self):
+        admin_guard = self.require_role("admin")
+        result = admin_guard(self.admin_user)
+        assert result["role"] == "admin"
+
+    def test_viewer_forbidden_from_analyst_role(self):
+        analyst_guard = self.require_role("analyst")
+        with pytest.raises(HTTPException) as exc:
+            analyst_guard(self.viewer_user)
+        assert exc.value.status_code == 403
+        assert exc.value.detail["code"] == "FORBIDDEN"
+
+    def test_analyst_allowed_by_analyst_role(self):
+        analyst_guard = self.require_role("analyst")
+        result = analyst_guard(self.analyst_user)
+        assert result["role"] == "analyst"
 

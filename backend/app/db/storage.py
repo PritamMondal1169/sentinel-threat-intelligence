@@ -29,6 +29,13 @@ class Storage:
             isolation_level=None  # autocommit mode
         )
         self._conn.row_factory = sqlite3.Row
+        if str(self.db_path) != ":memory:":
+            try:
+                self._conn.execute("PRAGMA journal_mode=WAL;")
+                self._conn.execute("PRAGMA busy_timeout=10000;")
+                self._conn.execute("PRAGMA synchronous=NORMAL;")
+            except Exception:
+                pass
         self._init_tables()
 
     def _init_tables(self):

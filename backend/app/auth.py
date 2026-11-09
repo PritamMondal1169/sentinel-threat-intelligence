@@ -135,10 +135,7 @@ def get_current_user_optional(
 
 def get_current_user(user: Optional[dict] = Depends(get_current_user_optional)) -> dict:
     if not user:
-        # If no auth configured and no token, allow anon viewer in non-strict mode
-        if not os.getenv("SENTINEL_API_KEY") and not os.getenv("SENTINEL_REQUIRE_AUTH"):
-            return {"sub": "anon", "role": "analyst", "auth_method": "open_access"}
-        raise HTTPException(401, {"code": "UNAUTHORIZED", "message": "Authentication required"})
+        raise HTTPException(401, {"code": "UNAUTHORIZED", "message": "Corporate authentication required. Please sign in with a valid analyst or administrator account."})
     return user
 
 
