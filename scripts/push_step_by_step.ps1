@@ -4,17 +4,21 @@ $ProjectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $ProjectRoot
 
 $commits = @(
-    @{ hash = "75364f3"; label = "Commit 1/11: Project foundation, configurations, and dependencies" },
-    @{ hash = "63ebbba"; label = "Commit 2/11: Core security utilities, SSRF protection, and normalizer" },
-    @{ hash = "62378c0"; label = "Commit 3/11: Threat intelligence feeds, CT logs, TLS, and DNS/RDAP" },
-    @{ hash = "1671189"; label = "Commit 4/11: Module 3 AI Scam DNA, Gemini LLM, and MinHash clustering" },
-    @{ hash = "868d3ca"; label = "Commit 5/11: Correlation engine, 3-sigma scam radar, and risk assessor" },
-    @{ hash = "dbf28df"; label = "Commit 6/11: RFC 8785 blockchain anchoring, LocalLedger, and ReportRegistry.sol" },
-    @{ hash = "04db7e1"; label = "Commit 7/11: SQLite storage engine, orchestrator pipeline, and seed demo" },
-    @{ hash = "7698fbe"; label = "Commit 8/11: REST API layer, JWT authentication, RBAC, and background jobs" },
-    @{ hash = "7551d0b"; label = "Commit 9/11: 14-screen unified SOC dashboard with canvas threat visualizer" },
-    @{ hash = "16e337a"; label = "Commit 10/11: Production Dockerfile, Nginx reverse proxy, and deploy automation" },
-    @{ hash = "a8d8f48"; label = "Commit 11/11: Complete test suite and PRD Section 25 correlation benchmark" }
+    @{ hash = "75364f3"; label = "Commit 1/15: Project foundation, configurations, and dependencies" },
+    @{ hash = "63ebbba"; label = "Commit 2/15: Core security utilities, SSRF protection, and normalizer" },
+    @{ hash = "62378c0"; label = "Commit 3/15: Threat intelligence feeds, CT logs, TLS, and DNS/RDAP" },
+    @{ hash = "1671189"; label = "Commit 4/15: Module 3 AI Scam DNA, Gemini LLM, and MinHash clustering" },
+    @{ hash = "868d3ca"; label = "Commit 5/15: Correlation engine, 3-sigma scam radar, and risk assessor" },
+    @{ hash = "dbf28df"; label = "Commit 6/15: RFC 8785 blockchain anchoring, LocalLedger, and ReportRegistry.sol" },
+    @{ hash = "04db7e1"; label = "Commit 7/15: SQLite storage engine, orchestrator pipeline, and seed demo" },
+    @{ hash = "7698fbe"; label = "Commit 8/15: REST API layer, JWT authentication, RBAC, and background jobs" },
+    @{ hash = "7551d0b"; label = "Commit 9/15: 14-screen unified SOC dashboard with canvas threat visualizer" },
+    @{ hash = "16e337a"; label = "Commit 10/15: Production Dockerfile, Nginx reverse proxy, and deploy automation" },
+    @{ hash = "a8d8f48"; label = "Commit 11/15: Complete test suite and PRD Section 25 correlation benchmark" },
+    @{ hash = "ab8af1d"; label = "Commit 12/15: Root Dockerfile and render.yaml for 1-click cloud deployment" },
+    @{ hash = "7ecf051"; label = "Commit 13/15: Enterprise customer polish - live SOC triage, toast notifications, proof export" },
+    @{ hash = "3a0ab86"; label = "Commit 14/15: Active real-time threat feed querying with multi-source resilient fallbacks" },
+    @{ hash = "5f4a57c"; label = "Commit 15/15: Enterprise phishing detection engine, strict password auth gate, and RBAC console" }
 )
 
 Write-Host "=========================================================="
@@ -33,6 +37,6 @@ foreach ($c in $commits) {
 
 Write-Host ""
 Write-Host "=========================================================="
-Write-Host " All 11 commits successfully pushed to GitHub!           "
+Write-Host " All 15 commits successfully pushed to GitHub!           "
 Write-Host " View: https://github.com/PritamMondal1169/sentinel-threat-intelligence"
 Write-Host "=========================================================="
