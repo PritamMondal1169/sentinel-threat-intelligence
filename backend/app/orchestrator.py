@@ -69,7 +69,9 @@ class Sentinel:
         if not answered:
             return None, 0, 0
         trusted = len([c for c in listed if c["reliability"] >= 0.85])
-        return (100 if listed else 0, max(c["reliability"] for c in answered)), trusted, len(listed)
+        if listed:
+            return (100, max(c["reliability"] for c in listed)), trusted, len(listed)
+        return (0, 0.35), 0, 0
 
     def _url_core(self, url: str) -> dict:
         """Module 1 (+ Module 2 when online) for one URL. Returns evidence + indicators."""

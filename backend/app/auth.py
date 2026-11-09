@@ -159,7 +159,7 @@ def require_role(min_role: str):
 
 
 def ensure_admin_user(storage: Storage):
-    """Ensure default admin account exists in DB."""
+    """Ensure default admin and analyst accounts exist in DB."""
     admin_user = storage.get_user_by_username("admin")
     if not admin_user:
         pwd = os.getenv("SENTINEL_ADMIN_PASSWORD", "changeme123")
@@ -172,4 +172,16 @@ def ensure_admin_user(storage: Storage):
             "active": True
         })
         logger.info("Created initial admin user (username: admin)")
+
+    analyst_user = storage.get_user_by_username("analyst")
+    if not analyst_user:
+        storage.save_user({
+            "id": "usr-analyst-01",
+            "username": "analyst",
+            "password_hash": hash_password("analyst123"),
+            "role": "analyst",
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "active": True
+        })
+        logger.info("Created initial analyst user (username: analyst)")
 

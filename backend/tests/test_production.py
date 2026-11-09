@@ -51,6 +51,23 @@ class TestAuthenticationAndRBAC:
         assert ROLE_HIERARCHY["admin"] > ROLE_HIERARCHY["analyst"]
         assert ROLE_HIERARCHY["analyst"] > ROLE_HIERARCHY["viewer"]
 
+    def test_user_management_and_password_change(self):
+        storage = Storage(":memory:")
+        ensure_admin_user(storage)
+        users = storage.list_users()
+        assert any(u["username"] == "admin" for u in users)
+        assert any(u["username"] == "analyst" for u in users)
+
+        # Verify password change logic
+        admin = storage.get_user_by_username("admin")
+        assert verify_password("changeme123", admin["password_hash"]) is True
+        admin["password_hash"] = hash_password("NewSecurePass456!")
+        storage.save_user(admin)
+
+        updated = storage.get_user_by_username("admin")
+        assert verify_password("NewSecurePass456!", updated["password_hash"]) is True
+        assert verify_password("changeme123", updated["password_hash"]) is False
+
 
 class TestAsyncBackgroundJobs:
     def test_async_job_submission_and_completion(self):

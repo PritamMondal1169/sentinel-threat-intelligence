@@ -99,6 +99,11 @@ class RegisterIn(BaseModel):
     role: Optional[str] = "analyst"
 
 
+class PasswordChangeIn(BaseModel):
+    old_password: str
+    new_password: str = Field(min_length=6, max_length=128)
+
+
 class UrlIn(BaseModel):
     url: str = Field(min_length=4, max_length=2048)
     submitter: Optional[str] = "anon"
@@ -195,6 +200,21 @@ def register(b: RegisterIn):
 @app.get("/api/v1/auth/me")
 def get_me(user: dict = Depends(get_current_user)):
     return user
+
+
+@app.get("/api/v1/auth/users", dependencies=[Depends(require_role("admin"))])
+def list_all_users():
+    return S.storage.list_users()
+
+
+@app.post("/api/v1/auth/change-password")
+def change_password(b: PasswordChangeIn, current_user: dict = Depends(get_current_user)):
+    user = S.storage.get_user_by_username(current_user.get("sub", ""))
+    if not user or not verify_password(b.old_password, user["password_hash"]):
+        raise HTTPException(400, {"code": "INVALID_OLD_PASSWORD", "message": "Incorrect current password"})
+    user["password_hash"] = hash_password(b.new_password)
+    S.storage.save_user(user)
+    return {"status": "success", "message": "Password updated successfully"}
 
 
 # --- Asynchronous Job Polling (PRD Section 13) ---
