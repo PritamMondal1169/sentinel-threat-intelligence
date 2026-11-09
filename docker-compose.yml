@@ -1,0 +1,75 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: sentinel-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - SENTINEL_OFFLINE=${SENTINEL_OFFLINE:-true}
+      - SENTINEL_SEED=${SENTINEL_SEED:-true}
+      - SENTINEL_DB_PATH=/app/data/sentinel.db
+      - SENTINEL_LOG_LEVEL=${SENTINEL_LOG_LEVEL:-INFO}
+    volumes:
+      - sentinel-data:/app/data
+    networks:
+      - sentinel-net
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:8000/health\")'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+          cpus: "2.0"
+        reservations:
+          memory: 256M
+
+  proxy:
+    image: nginx:alpine
+    container_name: sentinel-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "8000:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - sentinel-net
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  # Optional local EVM chain for Module 6 contract verification:
+  # docker compose --profile chain up
+  hardhat:
+    profiles: ["chain"]
+    image: node:20-alpine
+    container_name: sentinel-chain
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: sh -c "npm install && npx hardhat node --hostname 0.0.0.0"
+    ports:
+      - "8545:8545"
+    networks:
+      - sentinel-net
+
+volumes:
+  sentinel-data:
+    driver: local
+
+networks:
+  sentinel-net:
+    driver: bridge
