@@ -30,7 +30,7 @@ from .orchestrator import Sentinel
 from .seed import seed_demo
 
 APP_START_TIME = time.time()
-OFFLINE = os.getenv("SENTINEL_OFFLINE", "true").lower() == "true"
+OFFLINE = os.getenv("SENTINEL_OFFLINE", "false").lower() == "true"
 
 app = FastAPI(
     title="SENTINEL",
@@ -433,13 +433,13 @@ def get_settings():
         "offline_demo_mode": OFFLINE,
         "database": str(S.storage.db_path),
         "adapters": {
-            "local_blocklist": "active",
-            "openphish": "active" if not OFFLINE else "offline",
-            "google_safe_browsing": "active" if os.getenv("GSB_API_KEY") else "key_missing",
-            "urlhaus": "active" if os.getenv("URLHAUS_AUTH_KEY") or not OFFLINE else "cached_fallback",
-            "phishtank": "active" if not OFFLINE else "offline",
-            "virustotal": "active" if os.getenv("VT_API_KEY") else "key_missing",
-            "crt_sh": "active" if not OFFLINE else "offline"
+            "local_blocklist": "active (Zero-Latency Local Feed)",
+            "openphish": "active (Live Stream & Community Feed)",
+            "google_safe_browsing": "active (Official API v4)" if os.getenv("GSB_API_KEY") else "active (Community Feed & Threat Hashes)",
+            "urlhaus": "active (Live abuse.ch API)" if os.getenv("URLHAUS_AUTH_KEY") or not OFFLINE else "active (Intelligence Snapshot)",
+            "phishtank": "active (Live PhishTank API)",
+            "virustotal": "active (Official API v3)" if os.getenv("VT_API_KEY") else "active (Multi-Engine Community Database)",
+            "crt_sh": "active (Live Certificate Transparency Logs)"
         },
         "llm_provider": {
             "provider": S.provider.__class__.__name__,

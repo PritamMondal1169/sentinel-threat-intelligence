@@ -915,8 +915,12 @@
         }
       } else {
         html += `<div style="margin-top:12px;"><h4>Threat Feeds</h4>`;
-        res.feeds.forEach(f => {
-          html += `<span class="chip">${f.source}: <b>${f.status}</b></span> `;
+        (res?.feeds || []).forEach(f => {
+          const isClean = f.status === 'clean';
+          const isListed = f.status === 'listed';
+          const bg = isListed ? 'rgba(255,59,92,0.15)' : (isClean ? 'rgba(0,255,157,0.12)' : 'rgba(255,184,0,0.12)');
+          const col = isListed ? 'var(--r)' : (isClean ? 'var(--g)' : 'var(--a)');
+          html += `<span class="chip" style="background:${bg}; color:${col}; font-weight:600; margin-right:6px; margin-bottom:6px; display:inline-block;">${f.source}: <b>${f.status.toUpperCase()}</b></span> `;
         });
         html += `</div>`;
       }
@@ -1024,8 +1028,12 @@
         <div class="card">
           <h2>Threat Intelligence Feed Verdicts</h2>
           <table><thead><tr><th>Feed</th><th>Status</th><th>Reliability</th><th>Detail</th></tr></thead><tbody>`;
-      inv.result.feeds.forEach(f => {
-        h += `<tr><td><b>${esc(f.source)}</b></td><td><span class="chip">${esc(f.status)}</span></td><td>${f.reliability}</td><td class="small muted">${esc(f.detail || '—')}</td></tr>`;
+      (inv?.result?.feeds || []).forEach(f => {
+        const isClean = f.status === 'clean';
+        const isListed = f.status === 'listed';
+        const bg = isListed ? 'rgba(255,59,92,0.15)' : (isClean ? 'rgba(0,255,157,0.12)' : 'rgba(255,184,0,0.12)');
+        const col = isListed ? 'var(--r)' : (isClean ? 'var(--g)' : 'var(--a)');
+        h += `<tr><td><b>${esc(f.source)}</b></td><td><span class="chip" style="background:${bg}; color:${col}; font-weight:600;">● ${esc(f.status.toUpperCase())}</span></td><td>${f.reliability}</td><td class="small muted">${esc(f.detail || '—')}</td></tr>`;
       });
       h += `</tbody></table>
         </div>
@@ -1548,7 +1556,11 @@
             <table>
               <thead><tr><th>Adapter</th><th>Status</th></tr></thead>
               <tbody>
-                ${Object.entries(s.adapters).map(([k, v]) => `<tr><td><b>${esc(k)}</b></td><td><span class="chip">${esc(v)}</span></td></tr>`).join('')}
+                ${Object.entries(s.adapters).map(([k, v]) => {
+                  const isAct = v.toLowerCase().includes('active');
+                  const chipStyle = isAct ? 'background: rgba(0,255,157,0.12); color: var(--g); border: 1px solid rgba(0,255,157,0.3); font-weight: 600;' : 'background: rgba(255,184,0,0.12); color: var(--a);';
+                  return `<tr><td><b>${esc(k)}</b></td><td><span class="chip" style="${chipStyle}">● ${esc(v)}</span></td></tr>`;
+                }).join('')}
               </tbody>
             </table>
           </div>
@@ -1556,7 +1568,7 @@
             <h2>AI &amp; Blockchain Configuration</h2>
             <div style="margin:8px 0;"><b>LLM Provider:</b> <code>${esc(s.llm_provider.provider)}</code> (${s.llm_provider.key_status})</div>
             <div style="margin:8px 0;"><b>Blockchain Client:</b> <code>${esc(s.blockchain.client)}</code></div>
-            <div style="margin:8px 0;"><b>Contract Address:</b> <code>${esc(s.blockchain.contract_address)}</code></div>
+            <div style="margin:8px 0;"><b>Contract Address:</b> <code>${esc(s.blockchain.contract || s.blockchain.contract_address || '0x5FbDB2315678afecb367f032d93F642f64180aa3')}</code></div>
             <div style="margin:8px 0;"><b>Network:</b> <code>${esc(s.blockchain.network)}</code></div>
             <div style="margin:8px 0;"><b>Storage Engine:</b> <code>${esc(s.database)}</code></div>
           </div>

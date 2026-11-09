@@ -61,8 +61,7 @@ class Sentinel:
 
     # ---------- feed checks & dimension scoring ----------
     def _feed_checks(self, url: str, fqdn: str) -> list[dict]:
-        active = [f for f in self.feeds if getattr(f, "name", "") == "local-blocklist"] if self.offline else self.feeds
-        return [f.check(url, fqdn) for f in active]
+        return [f.check(url, fqdn) for f in self.feeds]
 
     def _ti_dimension(self, checks: list[dict]):
         answered = [c for c in checks if c["status"] != "unavailable"]
@@ -74,7 +73,14 @@ class Sentinel:
 
     def _url_core(self, url: str) -> dict:
         """Module 1 (+ Module 2 when online) for one URL. Returns evidence + indicators."""
-        validate_url(url, self.resolver, resolve=not self.offline)
+        try:
+            validate_url(url, self.resolver, resolve=not self.offline)
+        except UrlBlocked as e:
+            if "DNS resolution failed" in str(e) or "no addresses" in str(e):
+                # Target domain is offline, taken down, or NXDOMAIN; validate structure without live resolution
+                validate_url(url, self.resolver, resolve=False)
+            else:
+                raise
         a = url_analysis.analyse(url)
         fqdn = a["domain"]["fqdn"]
         reg_domain = a["domain"]["registrable"]

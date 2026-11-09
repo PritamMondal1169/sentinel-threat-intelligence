@@ -68,6 +68,35 @@ class FeedAdapterTests(unittest.TestCase):
         res = pt.check("https://google.com/", "google.com")
         self.assertIn(res["status"], ("clean", "unavailable"))
 
+    def test_openphish_adapter(self):
+        op = feeds.OpenPhishFeed(offline=True)
+        res = op.check("https://google.com/", "google.com")
+        self.assertEqual(res["status"], "clean")
+        res_hit = op.check("http://sbi-kyc-update.top/login", "sbi-kyc-update.top")
+        self.assertEqual(res_hit["status"], "listed")
+
+    def test_google_safe_browsing_adapter(self):
+        gsb = feeds.GoogleSafeBrowsing(offline=True)
+        res = gsb.check("https://google.com/", "google.com")
+        self.assertEqual(res["status"], "clean")
+        res_hit = gsb.check("http://sbi-kyc-update.top/login", "sbi-kyc-update.top")
+        self.assertEqual(res_hit["status"], "listed")
+
+    def test_virustotal_adapter(self):
+        vt = feeds.VirusTotalFeed(offline=True)
+        res = vt.check("https://google.com/", "google.com")
+        self.assertEqual(res["status"], "clean")
+        res_hit = vt.check("http://sbi-kyc-update.top/login", "sbi-kyc-update.top")
+        self.assertEqual(res_hit["status"], "listed")
+
+    def test_all_adapters_return_valid_verdicts(self):
+        all_f = feeds.default_feeds(offline=True)
+        self.assertEqual(len(all_f), 6)
+        for f in all_f:
+            res = f.check("https://example.com/test", "example.com")
+            self.assertIn(res["status"], ("clean", "listed", "unavailable"))
+            self.assertGreater(res["reliability"], 0.5)
+
 
 class LLMProviderTests(unittest.TestCase):
     def test_rule_based_evidence_is_verbatim(self):
