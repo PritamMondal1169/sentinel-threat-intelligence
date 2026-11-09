@@ -1,6 +1,7 @@
 """Investigation Orchestrator: one unified pipeline, shared indicator store,
 Scam DNA Engine, explainable correlation, emerging radar, and tamper-evident reports.
 """
+import re
 import socket
 import uuid
 from datetime import datetime, timezone
@@ -75,6 +76,9 @@ class Sentinel:
 
     def _url_core(self, url: str) -> dict:
         """Module 1 (+ Module 2 when online) for one URL. Returns evidence + indicators."""
+        url = url.strip()
+        if not re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", url):
+            url = "http://" + url
         try:
             validate_url(url, self.resolver, resolve=not self.offline)
         except UrlBlocked as e:

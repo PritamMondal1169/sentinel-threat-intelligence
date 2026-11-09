@@ -49,8 +49,8 @@ app.add_middleware(RequestContextMiddleware)
 storage_instance = Storage()
 S = Sentinel(offline=OFFLINE, storage=storage_instance)
 
-# Seed demo data if configured
-if os.getenv("SENTINEL_SEED", "true").lower() == "true":
+# Seed demo data only if explicitly requested
+if os.getenv("SENTINEL_SEED", "false").lower() == "true":
     seed_demo(S)
 
 # Ensure admin user exists in DB

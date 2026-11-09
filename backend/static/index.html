@@ -434,22 +434,20 @@
       <!-- Screen 1: Landing & Triage -->
       <section id="screen-landing" class="screen-panel active">
         <div class="card" style="margin-bottom: 20px; background: linear-gradient(180deg, #16243E 0%, #111A2E 100%);">
-          <h1 style="font-size: 22px; margin-bottom: 6px;">Enterprise Threat Intake &amp; Triage</h1>
-          <p class="muted">Submit suspicious URLs, web domains, email lures, or multi-lingual messaging payloads. SENTINEL coordinates threat feeds, TLS inspection, DNS security, and Scam DNA correlation.</p>
+          <h1 style="font-size: 22px; margin-bottom: 6px;">Live Threat Intelligence &amp; Triage Engine</h1>
+          <p class="muted">Paste any live suspicious URL, web domain, phishing lure, or scam message text for real-time multi-vector analysis. SENTINEL immediately queries live threat feeds, inspects TLS certificates, queries Certificate Transparency logs, analyzes DNS/RDAP records, and computes Scam DNA risk fusion.</p>
           <div style="display: flex; gap: 12px; margin-top: 16px;">
-            <input type="text" id="landing-input" placeholder="Enter target URL (e.g. https://portal-auth-verification.com/login) or message text...">
-            <button class="btn-cyan" onclick="submitLanding()">Analyze Threat</button>
+            <input type="text" id="landing-input" placeholder="Paste any live URL or scam text (e.g. sbi-secure-portal.xyz/login, chase-security-alert.top, or smishing text)..." onkeydown="if(event.key==='Enter') submitLanding()">
+            <button class="btn-cyan" onclick="submitLanding()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle; margin-right:4px;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              Scan Threat Now
+            </button>
           </div>
-          <div style="margin-top: 12px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px;">
-            <span class="muted small" style="margin-right: 4px;">Enterprise Threat Scenarios:</span>
-            <span class="sample-pill" onclick="loadSample('url-paypal')">🚨 PayPal Account Phish</span>
-            <span class="sample-pill" onclick="loadSample('url-microsoft')">🏢 Microsoft 365 OAuth Phish</span>
-            <span class="sample-pill" onclick="loadSample('url-chase')">🏦 Chase Banking Alert Phish</span>
-            <span class="sample-pill" onclick="loadSample('url-sbi')">⚠️ SBI KYC Impersonation</span>
-            <span class="sample-pill" onclick="loadSample('msg-bengali')">💬 Regional Smishing (Bengali)</span>
-            <span class="sample-pill" onclick="loadSample('msg-hindi')">💬 Regional Smishing (Hindi)</span>
-            <span class="sample-pill" onclick="loadSample('url-benign')">🌐 Legitimate Bank Domain (Clean)</span>
-            <span class="sample-pill" onclick="loadSample('msg-injection')">🛡️ LLM Jailbreak Test</span>
+          <div style="margin-top: 14px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">
+            <span class="chip" style="background: rgba(0,255,157,0.1); color: var(--g); border: 1px solid rgba(0,255,157,0.25);">● Real-Time URL &amp; Brand Impersonation Engine</span>
+            <span class="chip" style="background: rgba(0,216,246,0.1); color: var(--cy); border: 1px solid rgba(0,216,246,0.25);">● 6 Live Threat Feeds (URLhaus, OpenPhish, PhishTank, GSB, VT)</span>
+            <span class="chip" style="background: rgba(255,184,0,0.1); color: var(--a); border: 1px solid rgba(255,184,0,0.25);">● Live DNS, RDAP &amp; Certificate Transparency (crt.sh)</span>
+            <span class="chip" style="background: rgba(147,51,234,0.1); color: #C084FC; border: 1px solid rgba(147,51,234,0.25);">● Multilingual Scam DNA Intelligence</span>
           </div>
         </div>
 
@@ -514,10 +512,11 @@
       <!-- Screen 3: URL Investigator -->
       <section id="screen-url-investigator" class="screen-panel">
         <div class="card" style="margin-bottom: 18px;">
-          <h2>Investigate Suspicious URL</h2>
+          <h2>Live URL Threat Intelligence</h2>
+          <p class="muted small" style="margin-bottom: 12px;">Paste any live URL or web address for deep heuristic inspection, threat feed matching, DNS security, and TLS certificate analytics.</p>
           <div style="display: flex; gap: 10px;">
-            <input type="url" id="url-input" placeholder="https://sbi-secure-login.top/verify">
-            <button onclick="investigateUrl()">Run URL Analysis</button>
+            <input type="text" id="url-input" placeholder="e.g. chase-security-login.top/auth, sbi-kyc-verify.com, or https://suspicious-domain.com" onkeydown="if(event.key==='Enter') investigateUrl()">
+            <button class="btn-cyan" onclick="investigateUrl()">Run URL Analysis</button>
           </div>
         </div>
         <div id="url-results-area" style="display: none;"></div>
@@ -528,8 +527,8 @@
         <div class="card" style="margin-bottom: 18px;">
           <h2>TLS Certificate &amp; Trust Timeline</h2>
           <div style="display: flex; gap: 10px;">
-            <input type="text" id="cert-domain-input" placeholder="e.g. sbi.co.in or sbi-kyc-update.top">
-            <button onclick="inspectDomainProfile()">Lookup CT &amp; TLS Timeline</button>
+            <input type="text" id="cert-domain-input" placeholder="e.g. sbi.co.in or sbi-kyc-update.top" onkeydown="if(event.key==='Enter') inspectDomainProfile()">
+            <button class="btn-cyan" onclick="inspectDomainProfile()">Lookup CT &amp; TLS Timeline</button>
           </div>
         </div>
         <div id="cert-results-area" style="display: none;"></div>
@@ -962,12 +961,15 @@
       const res = inv.result;
       let html = `<div style="display:flex; justify-content:space-between; align-items:flex-start;">
         <div>
-          <h2>Triage Verdict</h2>
+          <h2>Real-Time Triage Verdict</h2>
           <span class="badge ${r.class}">${r.class.replace('_', ' ')}</span>
           <b style="font-size:18px; margin-left:8px;">${r.score}/100</b>
           <span class="muted small" style="margin-left:12px;">Coverage: ${(r.coverage*100).toFixed(0)}% · Confidence: ${r.confidence}</span>
         </div>
-        <button class="btn-cyan btn-sm" onclick="createAndCommitReport('${inv.id}')">Anchoring Commit</button>
+        <div style="display:flex; gap:8px;">
+          <button class="btn-alt btn-sm" onclick="nav('threat-graph'); loadGraphForInv('${inv.id}')">Explore in Graph</button>
+          <button class="btn-cyan btn-sm" onclick="createAndCommitReport('${inv.id}')">Anchoring Commit</button>
+        </div>
       </div>`;
 
       if (res?.analysis?.brand) {

@@ -1,5 +1,6 @@
 """SSRF guard: the ONLY gate for outbound requests to user-supplied hosts."""
 import ipaddress
+import re
 import socket
 from urllib.parse import urlsplit
 
@@ -61,7 +62,10 @@ def validate_url(url: str, resolver=socket.getaddrinfo, resolve: bool = True) ->
         raise UrlBlocked("URL empty or too long")
     if any(ord(c) < 32 for c in url):
         raise UrlBlocked("control characters in URL")
-    parts = urlsplit(url.strip())
+    url = url.strip()
+    if not re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", url):
+        url = "http://" + url
+    parts = urlsplit(url)
     if parts.scheme not in ("http", "https"):
         raise UrlBlocked("only http and https are allowed")
     if parts.username or parts.password:

@@ -16,7 +16,10 @@ def to_ascii_host(host: str) -> str:
 
 
 def canonical_url(raw: str) -> str:
-    p = urlsplit(raw.strip())
+    raw = raw.strip()
+    if not re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", raw):
+        raw = "http://" + raw
+    p = urlsplit(raw)
     host = to_ascii_host(p.hostname or "")
     port = p.port
     if (p.scheme == "http" and port == 80) or (p.scheme == "https" and port == 443):
