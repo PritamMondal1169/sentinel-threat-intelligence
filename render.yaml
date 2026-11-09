@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: sentinel-threat-intelligence
+    runtime: docker
+    dockerfilePath: Dockerfile
+    plan: free
+    region: oregon
+    envVars:
+      - key: SENTINEL_OFFLINE
+        value: "true"
+      - key: SENTINEL_SEED
+        value: "true"
+      - key: SENTINEL_DB_PATH
+        value: "/app/data/sentinel.db"
+      - key: SENTINEL_ADMIN_PASSWORD
+        generateValue: true
+      - key: SENTINEL_JWT_SECRET
+        generateValue: true
