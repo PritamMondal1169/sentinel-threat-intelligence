@@ -615,22 +615,68 @@ class Sentinel:
         }
 
     def get_domain_profile(self, domain: str) -> dict:
-        """PRD Section 17 & 8: Domain profile, certificate timeline, and related investigations."""
-        clean = domain.strip().lower().lstrip("*.")
+        """PRD Section 17 & 8: Domain profile, live TLS inspection, certificate timeline, and related investigations."""
+        raw = domain.strip().lower()
+        if "://" in raw or "/" in raw:
+            parsed = urlsplit(raw if "://" in raw else "https://" + raw)
+            clean = (parsed.hostname or raw).strip().lower().lstrip("*.")
+        else:
+            clean = raw.lstrip("*.")
+
         related = [
             i for i in self.invs.values()
             if any(t == "domain" and clean in v.lower() for (t, v) in i.get("indicators", {}).keys())
         ]
-        cert_history = self.storage.get_cert_history(clean)
         scans = self.storage.get_website_scans(clean)
-        dns_rec = dns_rdap.query_dns_records(clean) if not self.offline else {}
-        rdap_info = dns_rdap.query_rdap_age(clean) if not self.offline else {}
-        ct_data = crtsh.crtsh_summary(crtsh.query_crtsh(clean) if not self.offline else [], clean)
+        dns_rec, rdap_info, ct_data, live_tls = {}, {}, {}, None
+
+        if not self.offline and clean:
+            def _do_dns():
+                try:
+                    return dns_rdap.query_dns_records(clean)
+                except Exception:
+                    return {}
+
+            def _do_rdap():
+                try:
+                    return dns_rdap.query_rdap_age(clean)
+                except Exception:
+                    return {}
+
+            def _do_ct():
+                try:
+                    return crtsh.crtsh_summary(crtsh.query_crtsh(clean), clean)
+                except Exception:
+                    return {}
+
+            def _do_tls():
+                try:
+                    return tls_service.inspect(clean, resolver=self.resolver)
+                except Exception as e:
+                    return {"error": str(e)[:120]}
+
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                f_dns = pool.submit(_do_dns)
+                f_rdap = pool.submit(_do_rdap)
+                f_ct = pool.submit(_do_ct)
+                f_tls = pool.submit(_do_tls)
+                dns_rec = f_dns.result()
+                rdap_info = f_rdap.result()
+                ct_data = f_ct.result()
+                live_tls = f_tls.result()
+
+            if live_tls and live_tls.get("cert_sha256"):
+                self.storage.save_cert_observation(clean, live_tls)
+        else:
+            ct_data = crtsh.crtsh_summary([], clean)
+
+        cert_history = self.storage.get_cert_history(clean)
 
         return {
             "domain": clean,
             "dns": dns_rec,
             "rdap": rdap_info,
+            "live_tls": live_tls,
             "certificate_timeline": cert_history,
             "ct_log_summary": ct_data,
             "website_scans": scans,

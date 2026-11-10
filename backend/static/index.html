@@ -618,8 +618,8 @@
         <div class="card" style="margin-bottom: 18px;">
           <h2>Domain Profile &amp; Intelligence Explorer</h2>
           <div style="display: flex; gap: 10px;">
-            <input type="text" id="explorer-domain-input" placeholder="e.g. sbi-kyc-update.top">
-            <button onclick="exploreDomain()">Query Domain</button>
+            <input type="text" id="explorer-domain-input" placeholder="e.g. sbi.co.in or sbi-kyc-update.top" onkeydown="if(event.key==='Enter') exploreDomain()">
+            <button class="btn-cyan" onclick="exploreDomain()">Query Domain</button>
           </div>
         </div>
         <div id="explorer-results-area" style="display: none;"></div>
@@ -1172,6 +1172,153 @@
       </div>`;
 
       $('url-results-area').innerHTML = h;
+    }
+
+    function extractHostname(val) {
+      let s = (val || '').trim();
+      if (!s) return '';
+      try {
+        if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(s)) s = 'https://' + s;
+        return new URL(s).hostname.replace(/^\*\./, '').toLowerCase();
+      } catch (_) {
+        return s.split('/')[0].split(':')[0].toLowerCase();
+      }
+    }
+
+    // Screen 4: Certificate & PKI Analytics
+    async function inspectDomainProfile() {
+      const host = extractHostname($('cert-domain-input').value);
+      if (!host) return;
+      $('cert-domain-input').value = host;
+      $('cert-results-area').style.display = 'block';
+      $('cert-results-area').innerHTML = '<div class="card muted">Running live TLS handshake, Certificate Transparency (crt.sh), and PKI timeline lookup...</div>';
+      try {
+        const d = await api('/domains/' + encodeURIComponent(host));
+        renderCertAnalytics(d);
+      } catch (e) {
+        $('cert-results-area').innerHTML = `<div class="card" style="color:var(--r)">Error: ${esc(e.message)}</div>`;
+      }
+    }
+
+    function renderCertAnalytics(d) {
+      const tls = d.live_tls || {};
+      const ct = d.ct_log_summary || {};
+      const tl = d.certificate_timeline || [];
+      const hasCert = Boolean(tls.cert_sha256);
+      const findings = tls.findings || [];
+
+      let h = `<div class="card" style="margin-bottom:16px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+          <div>
+            <h2>PKI &amp; TLS Handshake Posture: <code>${esc(d.domain)}</code></h2>
+            <div class="muted small">CT Observations: <b>${ct.total_observed || 0}</b> · Historical Timeline Entries: <b>${tl.length}</b>${d.rdap?.domain_age_days ? ` · Domain Age: <b>${d.rdap.domain_age_days} days</b>` : ''}</div>
+          </div>
+          <span class="badge ${findings.length ? 'high_risk' : (hasCert ? 'low_risk' : 'inconclusive')}">${findings.length ? `${findings.length} TLS Warning(s)` : (hasCert ? 'Valid TLS Handshake' : (tls.error ? 'No Live TLS' : 'Offline / Cached'))}</span>
+        </div>
+      </div>`;
+
+      h += `<div class="grid grid-2" style="margin-bottom:16px;">
+        <div class="card">
+          <h2>Live X.509 Certificate Details</h2>`;
+      if (hasCert) {
+        const allSan = tls.san || tls.sans || [];
+        const sans = allSan.slice(0, 12);
+        const daysLeft = tls.days_remaining;
+        const pct = daysLeft !== undefined ? Math.max(2, Math.min(100, Math.round((daysLeft / 90) * 100))) : 50;
+        const barCol = daysLeft <= 7 ? 'var(--r)' : (daysLeft <= 21 ? 'var(--a)' : 'var(--g)');
+        h += `
+          <div class="small" style="margin:6px 0;"><b>Subject:</b> <code>${esc(tls.subject || tls.subject_cn || d.domain)}</code></div>
+          <div class="small" style="margin:6px 0;"><b>Issuer:</b> <code>${esc(tls.issuer || '—')}</code></div>
+          <div class="small" style="margin:6px 0;"><b>Protocol / Cipher:</b> <code>${esc(tls.protocol || 'TLS')}</code> · <code style="font-size:11px;">${esc(tls.cipher || '—')}</code></div>
+          <div class="small" style="margin:6px 0;"><b>Validity Window:</b> ${esc((tls.not_before || '—').slice(0, 10))} → ${esc((tls.not_after || '—').slice(0, 10))}</div>
+          ${daysLeft !== undefined ? `<div style="margin:8px 0;">
+            <div class="small muted">Remaining Lifetime: <b style="color:${barCol}">${daysLeft} days</b></div>
+            <div class="driver-bar-wrap" style="margin-top:4px;"><div class="driver-bar" style="width:${pct}%; background:${barCol};"></div></div>
+          </div>` : ''}
+          <div class="small" style="margin:6px 0;"><b>Cert SHA-256:</b> <code style="font-size:11px; word-break:break-all;">${esc(tls.cert_sha256)}</code></div>
+          <div class="small" style="margin:6px 0;"><b>SPKI Pin SHA-256:</b> <code style="font-size:11px; word-break:break-all;">${esc(tls.spki_sha256 || '—')}</code></div>
+          <div class="small" style="margin:6px 0;"><b>Subject Alternative Names (${allSan.length}):</b><div style="margin-top:4px; max-height:100px; overflow-y:auto;">${sans.map(s => `<span class="chip" style="margin:2px;">${esc(s)}</span>`).join('') || 'None'}</div></div>
+        `;
+      } else {
+        h += `<div class="muted small">Live TLS handshake unavailable (${esc(tls.error || 'No A record or port 443 closed')}). Reviewing Certificate Transparency &amp; cached timeline below.</div>`;
+      }
+      if (findings.length) {
+        h += `<div style="margin-top:10px; border-top:1px solid var(--bd); padding-top:8px;"><h4>PKI &amp; Chain Findings</h4>` +
+          findings.map(f => `<div class="small" style="color:var(--r); margin:4px 0;">⚑ <b>${esc(f.code)}:</b> ${esc(f.detail || f.category || f.severity || '')}</div>`).join('') + `</div>`;
+      }
+      h += `</div>
+        <div class="card">
+          <h2>Certificate Transparency (crt.sh)</h2>
+          <div class="small" style="margin:6px 0;"><b>Total Logged Certs:</b> ${ct.total_observed || 0}</div>
+          <div class="small" style="margin:6px 0;"><b>First Seen:</b> ${esc(ct.first_seen || '—')} · <b>Last Seen:</b> ${esc(ct.last_seen || '—')}</div>
+          <div class="small" style="margin:8px 0;"><b>Observed Issuers:</b><div style="margin-top:4px;">${(ct.issuers || []).slice(0, 8).map(i => `<span class="chip" style="margin:2px;">${esc(i)}</span>`).join('') || '<span class="muted">None recorded</span>'}</div></div>
+          <div class="small" style="margin:8px 0;"><b>Co-listed Sibling Domains (${(ct.sibling_domains || []).length}):</b><div style="margin-top:4px; max-height:140px; overflow-y:auto;">${(ct.sibling_domains || []).slice(0, 25).map(s => `<span class="chip" style="margin:2px;">${esc(s)}</span>`).join('') || '<span class="muted">None observed</span>'}</div></div>
+        </div>
+      </div>`;
+
+      h += `<div class="card">
+        <h2>Observed Digital Trust Certificate Timeline</h2>
+        <table>
+          <thead><tr><th>Observed At</th><th>Issuer</th><th>Cert SHA-256</th><th>SPKI Pin</th><th>Expiry</th></tr></thead>
+          <tbody>
+            ${tl.length ? tl.map(c => `<tr>
+              <td class="small muted">${esc(c.observed_at || '—')}</td>
+              <td class="small">${esc(c.issuer || '—')}</td>
+              <td><code style="font-size:11px;">${esc((c.cert_sha256 || '').slice(0, 18))}…</code></td>
+              <td><code style="font-size:11px;">${esc((c.spki_sha256 || '').slice(0, 18))}…</code></td>
+              <td class="small">${esc(c.not_after || '—')}</td>
+            </tr>`).join('') : '<tr><td colspan="5" class="muted small">No historical observations recorded yet.</td></tr>'}
+          </tbody>
+        </table>
+      </div>`;
+      $('cert-results-area').innerHTML = h;
+    }
+
+    // Screen 10: Domain Profile Explorer
+    async function exploreDomain() {
+      const host = extractHostname($('explorer-domain-input').value);
+      if (!host) return;
+      $('explorer-domain-input').value = host;
+      $('explorer-results-area').style.display = 'block';
+      $('explorer-results-area').innerHTML = '<div class="card muted">Querying DNS records, RDAP age, TLS/CT intelligence, and past investigations...</div>';
+      try {
+        const d = await api('/domains/' + encodeURIComponent(host));
+        renderDomainExplorer(d);
+      } catch (e) {
+        $('explorer-results-area').innerHTML = `<div class="card" style="color:var(--r)">Error: ${esc(e.message)}</div>`;
+      }
+    }
+
+    function renderDomainExplorer(d) {
+      const dns = d.dns || {};
+      const rdap = d.rdap || {};
+      const rel = d.related_investigations || [];
+      let h = `<div class="card" style="margin-bottom:16px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+          <div>
+            <h2>Domain Dossier: <code>${esc(d.domain)}</code></h2>
+            <div class="muted small">Domain Age: <b>${rdap.domain_age_days !== undefined && rdap.domain_age_days !== null ? rdap.domain_age_days + ' days' : 'Unavailable'}</b> · Created: ${esc(rdap.created_at || '—')} · Related Investigations: <b>${rel.length}</b></div>
+          </div>
+          <button class="btn-alt btn-sm" onclick="nav('certificate-intel'); $('cert-domain-input').value='${esc(d.domain)}'; inspectDomainProfile();">Open PKI Analytics</button>
+        </div>
+      </div>`;
+
+      h += `<div class="grid grid-2" style="margin-bottom:16px;">
+        <div class="card">
+          <h2>DNS Infrastructure Records</h2>
+          ${['A', 'AAAA', 'NS', 'MX', 'TXT', 'CNAME'].map(rt => {
+            const vals = dns[rt] || [];
+            return `<div class="small" style="margin:6px 0;"><b>${rt}:</b> ${vals.length ? vals.map(v => `<code style="margin-right:4px;">${esc(v)}</code>`).join('') : '<span class="muted">None</span>'}</div>`;
+          }).join('')}
+        </div>
+        <div class="card">
+          <h2>Related Investigations &amp; Threat History</h2>
+          ${rel.length ? `<table><thead><tr><th>Type</th><th>Target</th><th>Risk</th><th>Date</th></tr></thead><tbody>` +
+            rel.map(r => `<tr><td><span class="chip">${esc(r.type)}</span></td><td><code>${esc((r.input || '').slice(0, 32))}</code></td><td><span class="badge ${r.risk}">${esc((r.risk || '').replace('_', ' '))}</span></td><td class="small muted">${esc((r.created_at || '').slice(0, 10))}</td></tr>`).join('') +
+            `</tbody></table>` : '<div class="muted small">No prior investigations linked to this domain.</div>'}
+        </div>
+      </div>`;
+      $('explorer-results-area').innerHTML = h;
     }
 
     // Screen 5: Message Analyzer

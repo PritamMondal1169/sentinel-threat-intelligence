@@ -308,7 +308,7 @@ def list_inv(
 
 
 # --- Domain Intelligence & Certificate Timeline (Modules 1, 2) ---
-@app.get("/api/v1/domains/{domain}")
+@app.get("/api/v1/domains/{domain:path}")
 def get_domain_profile(domain: str):
     try:
         return S.get_domain_profile(domain)
