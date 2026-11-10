@@ -7,8 +7,10 @@ services:
     region: oregon
     envVars:
       - key: SENTINEL_OFFLINE
-        value: "true"
+        value: "false"
       - key: SENTINEL_SEED
+        value: "false"
+      - key: SENTINEL_REQUIRE_AUTH
         value: "true"
       - key: SENTINEL_DB_PATH
         value: "/app/data/sentinel.db"

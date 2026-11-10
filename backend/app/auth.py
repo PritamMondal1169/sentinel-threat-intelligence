@@ -16,11 +16,34 @@ from typing import Optional
 from fastapi import Depends, HTTPException, Request, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from .db.storage import Storage
+from .db.storage import DATA_DIR, Storage
 
 logger = logging.getLogger("sentinel.auth")
 
-DEFAULT_SECRET = os.getenv("SENTINEL_JWT_SECRET") or "sentinel-prod-jwt-secret-key-change-in-env-file-98341"
+
+def _load_or_create_jwt_secret() -> str:
+    env_sec = os.getenv("SENTINEL_JWT_SECRET")
+    if env_sec:
+        return env_sec
+    sec_file = DATA_DIR / ".jwt_secret"
+    try:
+        if sec_file.exists():
+            val = sec_file.read_text(encoding="utf-8").strip()
+            if len(val) >= 32:
+                return val
+        val = secrets.token_urlsafe(32)
+        sec_file.write_text(val, encoding="utf-8")
+        try:
+            os.chmod(sec_file, 0o600)
+        except OSError:
+            pass
+        logger.warning("SENTINEL_JWT_SECRET unset; generated instance secret at data/.jwt_secret")
+        return val
+    except OSError:
+        return secrets.token_urlsafe(32)
+
+
+DEFAULT_SECRET = _load_or_create_jwt_secret()
 JWT_EXPIRATION_SECONDS = int(os.getenv("SENTINEL_JWT_EXPIRE_SECONDS", "86400"))  # 24 hours
 ROLE_HIERARCHY = {"admin": 3, "analyst": 2, "viewer": 1}
 
@@ -160,6 +183,8 @@ def ensure_admin_user(storage: Storage):
     admin_user = storage.get_user_by_username("admin")
     if not admin_user:
         pwd = os.getenv("SENTINEL_ADMIN_PASSWORD", "changeme123")
+        if pwd == "changeme123":
+            logger.warning("Admin created with default password; set SENTINEL_ADMIN_PASSWORD or rotate via Settings.")
         storage.save_user({
             "id": "usr-admin-01",
             "username": "admin",
@@ -172,10 +197,13 @@ def ensure_admin_user(storage: Storage):
 
     analyst_user = storage.get_user_by_username("analyst")
     if not analyst_user:
+        apwd = os.getenv("SENTINEL_ANALYST_PASSWORD", "analyst123")
+        if apwd == "analyst123":
+            logger.warning("Analyst created with default password; set SENTINEL_ANALYST_PASSWORD or rotate via Settings.")
         storage.save_user({
             "id": "usr-analyst-01",
             "username": "analyst",
-            "password_hash": hash_password("analyst123"),
+            "password_hash": hash_password(apwd),
             "role": "analyst",
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "active": True

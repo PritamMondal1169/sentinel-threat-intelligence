@@ -2,8 +2,14 @@
 Exposes complete REST API per PRD Section 17 and serves the unified web dashboard.
 Hardened for production with JWT authentication, RBAC, async jobs, CORS, security headers, and rate limiting.
 """
+import logging
 import os
 import time
+
+logging.basicConfig(
+    level=getattr(logging, os.getenv("SENTINEL_LOG_LEVEL", "INFO").upper(), logging.INFO),
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s"
+)
 from collections import defaultdict, deque
 from datetime import datetime, timezone
 from pathlib import Path
@@ -63,6 +69,10 @@ def rate_limit(limit: int):
     def dep(request: Request):
         ip = request.client.host if request.client else "unknown"
         t = time.time()
+        if len(_hits) > 2000:
+            stale = [k for k, v in _hits.items() if not v or t - v[-1] > 60]
+            for k in stale:
+                del _hits[k]
         q = _hits[f"{ip}:{limit}"]
         while q and t - q[0] > 60:
             q.popleft()
@@ -81,6 +91,12 @@ def auth(request: Request):
 async def http_err(_, exc):
     d = exc.detail if isinstance(exc.detail, dict) else {"code": "ERROR", "message": str(exc.detail)}
     return JSONResponse({"error": d}, status_code=exc.status_code)
+
+
+@app.exception_handler(Exception)
+async def unhandled_err(request: Request, exc: Exception):
+    logging.getLogger("sentinel.api").exception(f"Unhandled error on {request.url.path}: {exc}")
+    return JSONResponse({"error": {"code": "INTERNAL_ERROR", "message": "Internal server error"}}, status_code=500)
 
 
 # --- Request Schemas ---

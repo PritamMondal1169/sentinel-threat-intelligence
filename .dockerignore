@@ -1,0 +1,13 @@
+.git
+.github
+.agents
+.pytest_cache
+__pycache__
+*.pyc
+.env
+backend/data/*.db
+backend/data/*.db-*
+backend/data/.jwt_secret
+backend/tests
+node_modules
+scripts/push_step_by_step.ps1

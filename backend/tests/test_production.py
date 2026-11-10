@@ -254,3 +254,26 @@ class TestOnDeviceAIModel:
         assert res["ai_score"] >= 80.0
         assert "credential_request" in res["signals"]
 
+
+class TestProductionSafetyGuards:
+    def test_jwt_secret_never_hardcoded_fallback(self, monkeypatch):
+        from app import auth
+        monkeypatch.setenv("SENTINEL_JWT_SECRET", "env-provided-prod-secret-key-0123456789")
+        assert auth._load_or_create_jwt_secret() == "env-provided-prod-secret-key-0123456789"
+        monkeypatch.delenv("SENTINEL_JWT_SECRET", raising=False)
+        generated = auth._load_or_create_jwt_secret()
+        assert len(generated) >= 32
+        assert "change-in-env-file" not in generated
+
+    def test_rate_limiter_prunes_stale_entries(self):
+        from collections import deque
+        from types import SimpleNamespace
+        from app.main import _hits, rate_limit
+        _hits.clear()
+        for i in range(2005):
+            _hits[f"stale-{i}:10"] = deque([0.0])
+        dep = rate_limit(10)
+        dep(SimpleNamespace(client=SimpleNamespace(host="198.51.100.1")))
+        assert len(_hits) < 100
+        _hits.clear()
+
