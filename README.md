@@ -1,142 +1,160 @@
 # SENTINEL
 
-**AI-Powered Web Threat Detection & Digital Trust Intelligence Platform**
-
-SENTINEL is a unified threat investigation and digital trust platform built with FastAPI, SQLite, and a browser-based Security Operations Center (SOC) dashboard. Submissions—URLs, domains, emails, SMS/chat messages, or owned websites—flow through a single **Investigation Orchestrator** that executes six analysis engines, persists normalized indicators in SQLite, correlates related infrastructure into threat campaigns, and produces cryptographically verifiable forensic reports.
+An AI-powered web threat detection, campaign correlation, and tamper-evident digital trust intelligence platform.
 
 ---
 
-## Core Capabilities
+## Problem
 
-| Engine | What It Does |
-|---|---|
-| **1. URL & Domain Intelligence** | RFC 8785 URL canonicalization, boundary-aware brand impersonation detection, homoglyph/typosquatting analysis (confusable skeletons + Damerau-Levenshtein), punycode & mixed-script checks, DNS lookups (`A`/`AAAA`/`NS`/`MX`/`TXT`/`CNAME`), RDAP domain age, SSRF IP-pinning guards, redirect tracing, and multi-feed threat checks (`LocalBlocklist`, `OpenPhish`, `PhishTank`, `URLhaus`, `Google Safe Browsing`, `VirusTotal`) with offline snapshot fallback. |
-| **2. TLS Certificate & PKI Analytics** | Dual-mode TLS handshake inspection, validity & chain checks, hostname mismatch and self-signed detection, SHA-256 / SPKI fingerprints, and Certificate Transparency (`crt.sh`) sibling-domain & SAN discovery. |
-| **3. Multilingual Scam DNA (`Sentinel-ML`)** | Zero-paid-API on-device NLP and lexical analysis supporting English, Hindi, Bengali, and Malayalam; deterministic extraction of E.164 phone numbers, UPI IDs, emails, URLs, and IFSC codes; MinHash template clustering; and prompt-injection containment (plus optional `GeminiLLMProvider` integration when configured). |
-| **4. Threat Correlation & Scam Radar** | Inverted-index graph construction over normalized indicators with inverse-document-frequency uniqueness weighting ($u = 1 / \log_2(2 + df)$), CDN/CA noise caps, campaign clustering without weak-link chaining, and 3-sigma surge detection. |
-| **5. Attack Surface & DNS Monitoring** | Passive security posture grading (`A`–`F`) across HTTP security headers (`HSTS`, `CSP`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`), TLS versions, and DNS auth records (`SPF`, `DMARC`, `CAA`, `DNSSEC`) with copy-paste remediations and domain monitoring subscriptions. |
-| **6. Tamper-Evident Forensic Reporting** | RFC 8785 canonical JSON serialization, salted SHA-256 report commitments, version chaining persisted in SQLite, independent JSON proof-bundle export, `LocalLedger` verification, and an optional EVM smart contract (`contracts/ReportRegistry.sol`). |
+Phishing URLs, fraudulent payment lures, lookalike domains, and malicious infrastructure rarely operate in isolation, yet defenders often rely on disconnected point tools: one utility for URL reputation, another for TLS checks, another for message analysis, and none that connect shared infrastructure across incidents. At the same time, many modern detection tools depend on paid third-party LLM or threat APIs, mix heuristic guesses with deterministic evidence, or store findings in mutable databases without verifiable audit proofs.
 
 ---
 
-## Security & Architecture Design
+## Solution
 
-- **Deterministic Verification First**: AI analysis explains social-engineering tactics and extracts signals, while deterministic evidence governs `"confirmed malicious"` risk classifications.
-- **Explicit Degraded States**: External feeds without live API keys or network reachability report `"unavailable"` on cache misses rather than false `"clean"` verdicts; unbroadcast chain commits report `"simulated_unbroadcast"`.
-- **Authentication & RBAC**: HMAC-SHA256 JWT tokens, PBKDF2-SHA256 (`100,000` iterations) password hashing, and role enforcement (`admin`, `analyst`, `viewer`) across investigation, monitoring, reporting, and user-management routes.
-- **Thread-Safe Storage**: Reentrant locking (`threading.RLock`) with explicit SQLite transactions (`BEGIN` / `COMMIT` / `ROLLBACK`) and WAL journaling.
+**SENTINEL** unifies six threat intelligence and security posture engines behind a single FastAPI **Investigation Orchestrator**, backed by transactional SQLite persistence and a browser-based Security Operations Center (SOC) dashboard:
 
----
-
-## Web Dashboard & API
-
-The FastAPI server serves the unified SOC web UI at `/` and interactive OpenAPI documentation at `/docs` and `/redoc`, covering:
-
-- Universal Threat Intake (URL & multilingual message triage)
-- SOC Command Center & Investigation Audit Trail (CSV/JSON export)
-- URL Intelligence, DNS/RDAP Dossiers & Certificate/PKI Views
-- Scam DNA Visualizer, Interactive Correlation Graph & Campaign Clusters
-- 3-Sigma Emerging Threat Radar & Domain Attack Surface Grading
-- Forensic Report Proof Audit, Registry Explorer & Admin/RBAC Settings
+1. **URL & Domain Intelligence**: RFC 8785 canonicalization, boundary-aware brand impersonation detection, homoglyph/typosquatting analysis, punycode & mixed-script checks, SSRF protection with pinned IP resolution, redirect tracing, DNS/RDAP lookups, and multi-feed reputation adapters with offline fallbacks.
+2. **TLS Certificate & PKI Analytics**: Dual-mode handshake inspection, certificate expiry/hostname/self-signed checks, SHA-256 and SPKI key pinning hashes, and `crt.sh` Certificate Transparency SAN/sibling discovery.
+3. **On-Device Multilingual Scam DNA (`Sentinel-ML`)**: Zero-paid-API NLP and lexical classification across English, Hindi, Bengali, and Malayalam, deterministic extraction of phone numbers, UPI IDs, emails, URLs, and IFSC codes, MinHash template fingerprinting, and prompt-injection containment.
+4. **Threat Correlation & Emerging Scam Radar**: Inverted-index graph construction over normalized indicators with IDF uniqueness weighting ($u = 1 / \log_2(2 + df)$), CDN/CA noise caps, campaign clustering without weak-link chaining, and 3-sigma surge detection (`100.0%` precision, `76.9%` recall, `0` false positives on benchmark).
+5. **Attack Surface & DNS Monitoring**: Passive website grading (`A`–`F`) over HTTP security headers (`HSTS`, `CSP`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`), TLS versions, DNS records (`SPF`, `DMARC`, `CAA`, `DNSSEC`), and domain monitoring subscriptions.
+6. **Tamper-Evident Forensic Reporting**: RFC 8785 canonical JSON serialization, salted SHA-256 versioned commitments stored in SQLite, independent JSON proof-bundle export, `LocalLedger` verification, and an optional EVM smart contract (`contracts/ReportRegistry.sol`).
 
 ---
 
-## Correlation Benchmark
+## Demo Links & Screenshot
 
-Evaluated against a synthetic benchmark of 40 investigations spanning 8 campaigns and 10 shared-infrastructure distractors (`backend/app/evaluation.py`):
+- **Live Web Application:** https://sentinel-threat-intelligence-production.up.railway.app
+- **Interactive API Docs (Swagger UI):** https://sentinel-threat-intelligence-production.up.railway.app/docs
+- **Live Health Endpoint:** https://sentinel-threat-intelligence-production.up.railway.app/health
 
-| Metric | Result |
-|---|---|
-| Precision | **100.0%** |
-| Recall | **76.9%** |
-| F1 Score | **0.869** |
-| Cluster Purity | **100.0%** |
-| False Positives | **0** |
+![SENTINEL Live SOC Dashboard](docs/screenshot.png)
 
-Run locally from `backend/`:
+---
 
-```bash
-python -m app.evaluation
+## Tech Stack
+
+- **Backend & API:** Python 3.11, FastAPI, Uvicorn, Pydantic v2
+- **Database:** SQLite (WAL mode, explicit `BEGIN`/`COMMIT`/`ROLLBACK` transactions, `threading.RLock` synchronization)
+- **Authentication & Cryptography:** Custom HMAC-SHA256 JWT tokens, PBKDF2-HMAC-SHA256 (`100,000` iterations) password hashing, RFC 8785 canonical JSON + salted SHA-256 commitments (`cryptography`)
+- **Networking & Intelligence:** `httpx`, `dnspython`, `urllib`, `ssl`, on-device `Sentinel-ML` engine
+- **Frontend:** Single-page SOC Dashboard (HTML5, CSS3, Vanilla JavaScript, Canvas graph visualization)
+- **Blockchain / Smart Contracts (Optional):** Solidity, Hardhat, TypeScript (`contracts/ReportRegistry.sol`)
+- **Deployment & Infrastructure:** Multi-stage Docker (`python:3.11-slim`), Nginx reverse proxy, Railway (persistent volume at `/app/data`), Render (`render.yaml`)
+- **Testing:** `pytest`
+
+---
+
+## Architecture
+
+```text
+  URL / Domain / Message / Site Audit Submission
+                       │
+                       ▼
+           FastAPI REST API & Auth/RBAC
+      (JWT Bearer, Rate Limiter, Security Headers)
+                       │
+                       ▼
+           Investigation Orchestrator
+   ┌──────────────┬──────────────┬──────────────┐
+   ▼              ▼              ▼              ▼
+URL, Feeds &   TLS & crt.sh   Sentinel-ML    Passive Site &
+ DNS/RDAP       Inspector     (Scam DNA)     DNS Posture Scan
+   └──────────────┴──────────────┴──────────────┘
+                       │
+                       ▼
+      Transactional SQLite Store (indicators,
+        investigations, reports, monitoring)
+                       │
+          ┌────────────┴────────────┐
+          ▼                         ▼
+   Correlation Engine         Forensic Reports
+  (Inverted Index Graph,     (RFC 8785 JSON + Salt +
+   Campaigns & 3σ Radar)      LocalLedger / EVM Registry)
 ```
 
----
-
-## Getting Started (Local)
-
-### 1. Install Dependencies
-
-```bash
-cd backend
-pip install -r requirements.txt
-```
-
-### 2. Configure Environment
-
-```bash
-cp ../.env.example .env
-```
-
-Set strong values for `SENTINEL_JWT_SECRET`, `SENTINEL_ADMIN_PASSWORD`, and `SENTINEL_ANALYST_PASSWORD` before exposing the service publicly. SENTINEL works out of the box with zero paid API keys using on-device `Sentinel-ML` and open feeds/caches.
-
-### 3. Run the Server
-
-```bash
-cd backend
-uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
-```
-
-Open `http://127.0.0.1:8000` in your browser.
-
----
-
-## Testing & Health Checks
-
-Run the full backend test suite (`103 passed, 15 subtests passed`):
-
-```bash
-pytest backend/tests -v
-```
-
-Probe a running instance:
-
-```bash
-python scripts/healthcheck.py http://127.0.0.1:8000/health
-```
-
----
-
-## Deployment
-
-- **Docker Compose (with Nginx reverse proxy)**:
-  ```bash
-  docker compose up --build -d
-  ```
-  Wait for `/health` and access via `http://localhost` (terminate TLS in front of Nginx for internet-facing deployments).
-- **Cloud Containers (Railway / Render)**:
-  Use the root [Dockerfile](Dockerfile) or [render.yaml](render.yaml). Mount persistent storage at `/app/data` (`SENTINEL_DB_PATH=/app/data/sentinel.db`) and keep Uvicorn at `--workers 1` / single replica while using SQLite persistence.
-
----
-
-## Project Layout
+### Repository Structure
 
 ```text
 .
 ├── backend/
 │   ├── app/
-│   │   ├── core/          # SSRF guards, URL/phone normalizers, safe HTTP
-│   │   ├── db/            # Transactional SQLite storage engine
-│   │   ├── services/      # Feeds, TLS, crt.sh, DNS/RDAP, AI, correlation, reports
-│   │   ├── auth.py        # JWT + PBKDF2 authentication and RBAC
+│   │   ├── core/          # SSRF IP-pinning guards, URL/phone normalizers, safe HTTP
+│   │   ├── db/            # Thread-safe transactional SQLite storage
+│   │   ├── services/      # Feeds, TLS, crt.sh, DNS/RDAP, Sentinel-ML, correlation, reports
+│   │   ├── auth.py        # JWT + PBKDF2 authentication & RBAC
 │   │   ├── main.py        # FastAPI application and REST routes
 │   │   └── orchestrator.py
-│   ├── data/              # Local threat intelligence caches & SQLite DB path
-│   ├── static/            # Single-page SOC dashboard
+│   ├── data/              # Offline intelligence caches & SQLite DB path
+│   ├── static/            # Unified SOC web dashboard
 │   ├── tests/             # Unit, API, benchmark, AI, and production safety tests
 │   └── requirements.txt
 ├── contracts/             # ReportRegistry.sol EVM registry contract
-├── nginx/                 # Reverse proxy & rate-limit configuration
-├── scripts/               # Deployment & healthcheck scripts
+├── docs/                  # Dashboard screenshot
+├── nginx/                 # Reverse proxy & rate-limit config
+├── scripts/               # Deployment & healthcheck utilities
 ├── Dockerfile
 ├── docker-compose.yml
 └── render.yaml
 ```
+
+---
+
+## Setup and Run Steps
+
+### 1. Clone and Configure Environment
+
+```bash
+git clone https://github.com/PritamMondal1169/sentinel-threat-intelligence.git
+cd sentinel-threat-intelligence
+cp .env.example .env
+```
+
+Update `SENTINEL_JWT_SECRET`, `SENTINEL_ADMIN_PASSWORD`, and `SENTINEL_ANALYST_PASSWORD` in `.env` before public deployment. No paid API keys are required—SENTINEL runs out of the box using on-device `Sentinel-ML` and free public intelligence feeds/caches.
+
+### 2. Install Dependencies & Start Backend
+
+```bash
+cd backend
+pip install -r requirements.txt
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+```
+
+Open `http://127.0.0.1:8000` in your browser (API documentation at `http://127.0.0.1:8000/docs`).
+
+### 3. Run Tests, Benchmark & Health Probe
+
+```bash
+# Run full test suite (103 passed, 15 subtests passed)
+pytest backend/tests -v
+
+# Run correlation benchmark (from backend/)
+python -m app.evaluation
+
+# Probe running server health
+python scripts/healthcheck.py http://127.0.0.1:8000/health
+```
+
+### 4. Container Deployment (Docker Compose)
+
+```bash
+docker compose up --build -d
+```
+
+Access via `http://localhost` (place TLS termination in front of Nginx for internet-facing deployments).
+
+---
+
+## Disclosures
+
+- **Open-Source Libraries:** `fastapi`, `uvicorn[standard]`, `pydantic`, `cryptography`, `httpx`, `dnspython`, `pytest`, and optional Solidity contract tooling (`hardhat`, `@nomicfoundation/hardhat-toolbox`, `typescript`, `ts-node`).
+- **Public APIs & Feeds Used:** `crt.sh` (Certificate Transparency logs), `rdap.org` (domain registration RDAP lookup), `OpenPhish` (`openphish.com/feed.txt`), `Phishing.Database` active domain list, `abuse.ch URLhaus` (`urlhaus-api.abuse.ch`), `PhishTank`, and standard DNS queries (`A`/`AAAA`/`MX`/`NS`/`TXT`/`CNAME`/`CAA`). Optional BYO-key adapters exist for Google Safe Browsing v4, VirusTotal v3, and Google Gemini (`GEMINI_API_KEY`) when explicitly configured.
+- **Templates / Scaffolding:** Built from scratch for the SENTINEL architecture using standard FastAPI, Docker, Nginx, and Hardhat project configurations.
+- **AI Coding Assistants:** Developed and hardened with assistance from Google Antigravity AI coding tools for test generation, security hardening, documentation, and deployment troubleshooting.
+
+---
+
+## Track
+
+**Cybersecurity / AI & Digital Trust** *(Open Innovation — Threat Intelligence & Phishing Defense)*
