@@ -428,7 +428,8 @@ class Sentinel:
         return self._finish(inv, dims, trusted, listed)
 
     def assess_website(self, url: str, ownership_declared: bool = False) -> dict:
-        validate_url(url, self.resolver, resolve=not self.offline)
+        norm_url, _ = validate_url(url, self.resolver, resolve=not self.offline)
+        url = norm_url
         fqdn = split_domain(urlsplit(url).hostname or "")["fqdn"]
         reg_domain = split_domain(urlsplit(url).hostname or "")["registrable"]
 
