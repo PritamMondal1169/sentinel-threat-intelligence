@@ -20,15 +20,15 @@ def assess(dims: dict, trusted_hits: int = 0, independent_sources: int = 0, allo
     coverage = round(den / applicable, 3)
     score = round(num / den, 1) if den else 0.0
 
-    # If structural URL heuristics indicate strong deception (e.g. brand impersonation / credential harvest lures),
-    # ensure affirmative zero-day heuristic evidence is not diluted when newly-registered domains are not yet indexed
-    if url_score >= 45 and trusted_hits == 0:
-        score = round(max(score, url_score * 0.90), 1)
+    # Ensure affirmative zero-day URL heuristics (spam keywords, brand impersonation, raw IP lures,
+    # suspicious TLDs, executable payloads) are not diluted by valid TLS certs or unlisted feed caches.
+    if not allowlisted and url_score >= 25 and trusted_hits == 0:
+        score = round(max(score, url_score * 0.92), 1)
 
     spread = statistics.pstdev([s for s, _ in used.values()]) if len(used) > 1 else 0.0
     confidence = round(coverage * (1 - spread / 100), 3)
 
-    if coverage < .40 and trusted_hits == 0 and url_score < 45:
+    if coverage < .40 and trusted_hits == 0 and url_score < 28:
         cls = "inconclusive"
     elif score >= 55:
         cls = "high_risk"

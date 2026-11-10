@@ -25,6 +25,18 @@ BRAND_DOMAINS = {
     "linkedin": ["linkedin.com"],
     "twitter": ["twitter.com", "x.com"],
     "telegram": ["telegram.org", "t.me"],
+    "discord": ["discord.com", "discordapp.com", "discord.gg"],
+    "tiktok": ["tiktok.com"],
+    "snapchat": ["snapchat.com"],
+    "steam": ["steampowered.com", "steamcommunity.com"],
+    "roblox": ["roblox.com"],
+    "twitch": ["twitch.tv"],
+    "github": ["github.com", "github.io"],
+    "slack": ["slack.com"],
+    "zoom": ["zoom.us"],
+    "spotify": ["spotify.com"],
+    "proton": ["proton.me", "protonmail.com"],
+    "cloudflare": ["cloudflare.com"],
     
     # Global Banking & Financial
     "paypal": ["paypal.com"],
@@ -38,6 +50,11 @@ BRAND_DOMAINS = {
     "usbank": ["usbank.com"],
     "pnc": ["pnc.com"],
     "stripe": ["stripe.com"],
+    "venmo": ["venmo.com"],
+    "cashapp": ["cash.app"],
+    "zelle": ["zellepay.com"],
+    "wise": ["wise.com"],
+    "revolut": ["revolut.com"],
     
     # Regional Banking & Payments (India/Asia/EMEA)
     "sbi": ["sbi.co.in", "onlinesbi.sbi", "onlinesbi.com"],
@@ -61,12 +78,21 @@ BRAND_DOMAINS = {
     "bybit": ["bybit.com"],
     "ledger": ["ledger.com"],
     "trezor": ["trezor.io"],
+    "phantom": ["phantom.app"],
+    "opensea": ["opensea.io"],
+    "uniswap": ["uniswap.org"],
     
-    # Shipping & Parcel Logistics
+    # Shipping & Parcel Logistics & Commerce
     "dhl": ["dhl.com"],
     "fedex": ["fedex.com"],
     "ups": ["ups.com"],
-    "usps": ["usps.com"]
+    "usps": ["usps.com"],
+    "shopify": ["shopify.com"],
+    "ebay": ["ebay.com"],
+    "walmart": ["walmart.com"],
+    "airbnb": ["airbnb.com"],
+    "booking": ["booking.com"],
+    "uber": ["uber.com"]
 }
 
 BRANDS = list(BRAND_DOMAINS.keys())
@@ -74,18 +100,44 @@ BRANDS = list(BRAND_DOMAINS.keys())
 SUSPICIOUS_TLDS = {
     "zip", "mov", "top", "xyz", "icu", "click", "link", "gq", "tk", "ml", "cf", "ga",
     "buzz", "rest", "cfd", "online", "site", "live", "club", "space", "monster", "fun",
-    "website", "work", "loan", "win", "fit", "surf", "cam", "bid", "pw", "cc"
+    "website", "work", "loan", "win", "fit", "surf", "cam", "bid", "pw", "cc",
+    "sbs", "cyou", "bond", "quest", "bar", "hair", "lol", "mom", "download", "stream",
+    "racing", "date", "review", "trade", "webcam", "party", "cricket", "science",
+    "casa", "uno", "vip", "shop", "store", "pro", "ltd", "su", "ru"
 }
 
+ABUSED_FREE_HOSTING = {
+    "blogspot.com", "weebly.com", "000webhostapp.com", "ngrok-free.app", "ngrok.io",
+    "trycloudflare.com", "duckdns.org", "no-ip.com", "ddns.net", "herokuapp.com",
+    "glitch.me", "wixsite.com", "sites.google.com", "web.app", "firebaseapp.com",
+    "pages.dev", "workers.dev", "netlify.app", "vercel.app", "repl.co", "fly.dev",
+    "onrender.com", "github.io"
+}
+
+MALICIOUS_EXTS = (
+    ".exe", ".apk", ".scr", ".bat", ".cmd", ".ps1", ".vbs", ".jse", ".wsf",
+    ".msi", ".hta", ".jar", ".iso", ".img", ".dmg", ".lnk", ".dll", ".sh", ".elf", ".bin"
+)
+
 SHORTENERS = {
-    "bit.ly", "tinyurl.com", "t.co", "goo.gl", "is.gd", "cutt.ly", "rb.gy", "shorturl.at"
+    "bit.ly", "tinyurl.com", "t.co", "goo.gl", "is.gd", "cutt.ly", "rb.gy", "shorturl.at",
+    "ow.ly", "buff.ly", "tiny.cc", "rebrand.ly", "t.ly"
 }
 
 LURE_WORDS = {
     "login", "signin", "verify", "verification", "secure", "security", "update", "kyc",
     "account", "banking", "wallet", "suspend", "suspended", "reward", "rewards", "claim",
     "otp", "confirm", "confirmation", "auth", "portal", "recovery", "recover", "unlock",
-    "alert", "validate", "validation", "passcode", "billing", "invoice", "refund"
+    "alert", "validate", "validation", "passcode", "billing", "invoice", "refund",
+    "restore", "connect", "sync", "support", "helpdesk", "payment", "expired", "notice",
+    "urgent", "ticket", "appeal", "blocked", "reactivate", "webmail", "cpanel"
+}
+
+SPAM_WORDS = {
+    "free", "airdrop", "giveaway", "prize", "winner", "won", "bonus", "cash", "earn",
+    "money", "crypto", "bitcoin", "btc", "eth", "usdt", "nft", "mint", "nitro", "robux",
+    "gift", "giftcard", "voucher", "jackpot", "lottery", "promo", "sweepstakes", "profit",
+    "double", "drainer", "seedphrase", "mnemonic", "casino", "betting", "iphone", "macbook"
 }
 
 CONFUSABLES = {
@@ -147,17 +199,29 @@ def analyse(url: str) -> dict:
     if depth >= 3:
         add("deep_subdomains", 15, f"{depth} subdomain levels (often used to obscure origin)")
     if d["tld"] in SUSPICIOUS_TLDS:
-        add("suspicious_tld", 12, f".{d['tld']} is frequently abused for phishing campaigns")
+        add("suspicious_tld", 15, f".{d['tld']} is frequently abused for phishing & spam campaigns")
+    is_free_host = any(host == fh or host.endswith("." + fh) for fh in ABUSED_FREE_HOSTING)
+    if is_free_host:
+        add("abused_free_hosting", 12, f"Hosted on free hosting/tunneling platform ({d['registrable']})")
     if d["registrable"] in SHORTENERS:
-        add("shortener", 8, "URL shortener hides the final destination")
+        add("shortener", 28, "URL shortener obfuscates the true destination")
     if host.count("-") >= 3:
         add("many_hyphens", 10, f"Many hyphens in host ({host.count('-')}) indicate domain masquerading")
     if len(host) > 40:
         add("long_host", 8, "Unusually long hostname commonly seen in phishing infrastructure")
 
-    lures = sorted(w for w in LURE_WORDS if w in host or w in p.path.lower())
+    path_low = p.path.lower()
+    if any(path_low.endswith(ext) for ext in MALICIOUS_EXTS):
+        add("malicious_payload_ext", 35, "URL directly targets an executable or script payload")
+
+    url_tokens = set(re.findall(r"[a-z0-9]+", host + " " + path_low + " " + p.query.lower()))
+    lures = sorted(w for w in LURE_WORDS if w in host or w in path_low)
     if lures:
-        add("lure_keywords", min(6 * len(lures), 20), "Phishing lure keywords: " + ", ".join(lures))
+        add("lure_keywords", min(7 * len(lures), 25), "Phishing lure keywords: " + ", ".join(lures))
+
+    spams = sorted(w for w in SPAM_WORDS if w in url_tokens)
+    if spams:
+        add("spam_scam_keywords", min(8 * len(spams), 28), "Spam/scam inducement keywords: " + ", ".join(spams))
 
     # brand impersonation: brand label present but registrable domain is not the official one
     brand_hit = None
@@ -183,9 +247,15 @@ def analyse(url: str) -> dict:
             add("brand_impersonation", 35, f"{kind} '{b}' on an unauthorized domain ({d['registrable']})")
             break
 
-    # Phishing synergy boost: brand impersonation + lure keywords or suspicious TLD
-    if brand_hit and lures:
-        add("credential_harvesting_pattern", 15, "Co-occurrence of brand impersonation and credential harvest lures")
+    # Compound phishing & spam synergy patterns
+    if brand_hit and (lures or spams or d["tld"] in SUSPICIOUS_TLDS or is_free_host):
+        add("credential_harvesting_pattern", 15, "Co-occurrence of brand impersonation and deceptive lures/hosting")
+    if d["is_ip"] and (lures or spams or any(path_low.endswith(ext) for ext in MALICIOUS_EXTS)):
+        add("ip_hosted_lure", 20, "Raw IP address serving credential lure or executable payload")
+    if d["tld"] in SUSPICIOUS_TLDS and (lures or spams or any(path_low.endswith(ext) for ext in MALICIOUS_EXTS)):
+        add("suspicious_tld_lure", 15, f"High-abuse .{d['tld']} domain paired with scam/payload lure")
+    if is_free_host and (lures or spams or brand_hit):
+        add("free_host_phish_lure", 18, "Free hosting platform combined with deceptive lure or brand target")
 
     return {
         "canonical_url": canon,

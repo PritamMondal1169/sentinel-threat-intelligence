@@ -1,5 +1,6 @@
 import os
 os.environ["SENTINEL_OFFLINE"] = "true"
+os.environ["SENTINEL_DB_PATH"] = ":memory:"
 import unittest
 from pathlib import Path
 import sys

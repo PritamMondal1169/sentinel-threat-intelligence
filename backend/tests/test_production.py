@@ -3,6 +3,7 @@ Tests JWT authentication, password hashing, RBAC, async background jobs, and sec
 """
 import os
 os.environ["SENTINEL_OFFLINE"] = "true"
+os.environ["SENTINEL_DB_PATH"] = ":memory:"
 import sys
 import time
 from pathlib import Path
@@ -168,4 +169,46 @@ class TestHttpRbacEnforcement:
         analyst_guard = self.require_role("analyst")
         result = analyst_guard(self.analyst_user)
         assert result["role"] == "analyst"
+
+
+class TestRealWorldMaliciousAndSpamScoring:
+    @pytest.mark.parametrize("url", [
+        "https://www.facebook-q.blogspot.com/",
+        "https://free-crypto-giveaway.xyz/claim",
+        "http://earn-fast-cash-now.click/bonus",
+        "https://discord-nitro-free.icu/",
+        "http://malicious-payload.top/download.exe",
+    ])
+    def test_real_malicious_and_spam_links_flagged_high_risk(self, url):
+        from app.services import url_analysis, risk
+        a = url_analysis.analyse(url)
+        r = risk.assess({"url": (a["score"], 0.7), "threat_intel": (0, 0.35), "tls": (0, 0.8)}, 0, 0)
+        assert r["class"] in ("high_risk", "confirmed_malicious")
+        assert r["score"] >= 55.0
+
+    @pytest.mark.parametrize("url", [
+        "http://198.51.100.42/login.php",
+        "http://verify-account-now.cfd/signin",
+        "https://win-iphone-16-prize.buzz/",
+        "http://bit.ly/3x9AbCd",
+    ])
+    def test_suspicious_ip_shortener_and_spam_links_never_low_risk(self, url):
+        from app.services import url_analysis, risk
+        a = url_analysis.analyse(url)
+        r = risk.assess({"url": (a["score"], 0.7), "threat_intel": (0, 0.35), "tls": (0, 0.8)}, 0, 0)
+        assert r["class"] in ("suspicious", "high_risk", "confirmed_malicious")
+        assert r["score"] >= 25.0
+
+    @pytest.mark.parametrize("url", [
+        "https://google.com",
+        "https://github.com/torvalds/linux",
+        "https://www.sbi.co.in/",
+        "https://example.org/",
+    ])
+    def test_benign_official_links_remain_low_risk(self, url):
+        from app.services import url_analysis, risk
+        a = url_analysis.analyse(url)
+        r = risk.assess({"url": (a["score"], 0.7), "threat_intel": (0, 0.35), "tls": (0, 0.8)}, 0, 0)
+        assert r["class"] == "low_risk"
+        assert r["score"] == 0.0
 

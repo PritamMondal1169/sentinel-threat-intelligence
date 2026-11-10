@@ -55,14 +55,29 @@ class OpenPhishFeed:
     def __init__(self, offline: bool = False):
         self.offline = offline
         self.cache: set[str] = set()
+        self.host_cache: set[str] = set()
         self.at = 0.0
         offline_path = DATA / "openphish_offline.txt"
         if offline_path.exists():
-            self.cache = {
+            entries = {
                 l.strip().lower()
                 for l in offline_path.read_text(encoding="utf-8").splitlines()
                 if l.strip() and not l.startswith("#")
             }
+            self._ingest(entries)
+
+    def _ingest(self, entries: set[str]):
+        for item in entries:
+            self.cache.add(item)
+            try:
+                if "://" in item:
+                    h = urllib.parse.urlsplit(item).hostname
+                    if h:
+                        self.host_cache.add(h.lower())
+                else:
+                    self.host_cache.add(item.split("/")[0].lower())
+            except Exception:
+                pass
 
     def check(self, url: str, fqdn: str) -> dict:
         if not self.offline:
@@ -73,12 +88,12 @@ class OpenPhishFeed:
                         content = r.read(5_000_000).decode("utf-8", "ignore")
                         entries = {l.strip().lower() for l in content.splitlines() if l.strip()}
                         if entries:
-                            self.cache.update(entries)
+                            self._ingest(entries)
                     self.at = time.time()
             except Exception:
                 pass  # Degrade gracefully to local cache
 
-        hit = url.lower() in self.cache or any(fqdn.lower() in item for item in self.cache)
+        hit = url.lower() in self.cache or fqdn.lower() in self.host_cache
         detail = "OpenPhish real-time verified phishing stream hit" if hit else "OpenPhish active: no malicious match"
         return verdict(self.name, "listed" if hit else "clean", 0.88, detail)
 
@@ -180,13 +195,16 @@ class URLhausFeed:
 
 
 class PhishTankFeed:
-    """PhishTank verified online phish feed / API with local snapshot fallback."""
+    """PhishTank verified online phish feed / API + Phishing.Database active domain stream."""
     name = "phishtank"
     API_URL = "https://checkurl.phishtank.com/checkurl/"
+    PHISHING_DB_URL = "https://raw.githubusercontent.com/Phishing-Database/Phishing.Database/master/phishing-domains-ACTIVE.txt"
 
     def __init__(self, offline: bool = False):
         self.offline = offline
         self.cached: set[str] = set()
+        self.live_domains: set[str] = set()
+        self.at = 0.0
         p = DATA / "phishtank_offline.txt"
         if p.exists():
             self.cached = {
@@ -195,35 +213,52 @@ class PhishTankFeed:
                 if l.strip() and not l.startswith("#")
             }
 
+    def _refresh_live_domains(self):
+        if time.time() - self.at < 3600:
+            return
+        try:
+            req = urllib.request.Request(self.PHISHING_DB_URL, headers={"User-Agent": "Sentinel-ThreatIntel/1.0"})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                content = resp.read(3_000_000).decode("utf-8", "ignore")
+                domains = {
+                    l.strip().lower()
+                    for l in content.splitlines()
+                    if l.strip() and not l.startswith("#")
+                }
+                if domains:
+                    self.live_domains = domains
+            self.at = time.time()
+        except Exception:
+            self.at = time.time() - 3300  # retry in 5 min if unreachable
+
     def check(self, url: str, fqdn: str) -> dict:
         app_key = os.getenv("PHISHTANK_APP_KEY")
-        post_data = {"url": url, "format": "json"}
-        if app_key:
-            post_data["app_key"] = app_key
-
         if not self.offline:
-            try:
-                req = urllib.request.Request(
-                    self.API_URL,
-                    urllib.parse.urlencode(post_data).encode(),
-                    {"User-Agent": "phishtank/sentinel"}
-                )
-                with urllib.request.urlopen(req, timeout=4) as resp:
-                    data = json.loads(resp.read().decode())
-                    results = data.get("results", {})
-                    in_db = results.get("in_database")
-                    verified = results.get("verified")
-                    valid = results.get("valid")
-                    if in_db and verified and valid:
-                        return verdict(self.name, "listed", 0.90, f"PhishTank phish_id: {results.get('phish_id')}")
-                    elif in_db:
-                        return verdict(self.name, "clean", 0.70, "Unverified submission in PhishTank")
-                    return verdict(self.name, "clean", 0.90, "PhishTank verified clean")
-            except Exception:
-                pass
+            self._refresh_live_domains()
+            if fqdn.lower() in self.live_domains:
+                return verdict(self.name, "listed", 0.90, "Matched in active Phishing.Database domain threat stream")
 
-        hit = url.lower() in self.cached or fqdn.lower() in self.cached
-        detail = "PhishTank verified community database hit" if hit else "PhishTank active: clean"
+            if app_key:
+                post_data = {"url": url, "format": "json", "app_key": app_key}
+                try:
+                    req = urllib.request.Request(
+                        self.API_URL,
+                        urllib.parse.urlencode(post_data).encode(),
+                        {"User-Agent": "phishtank/sentinel"}
+                    )
+                    with urllib.request.urlopen(req, timeout=4) as resp:
+                        data = json.loads(resp.read().decode())
+                        results = data.get("results", {})
+                        in_db = results.get("in_database")
+                        verified = results.get("verified")
+                        valid = results.get("valid")
+                        if in_db and verified and valid:
+                            return verdict(self.name, "listed", 0.90, f"PhishTank phish_id: {results.get('phish_id')}")
+                except Exception:
+                    pass
+
+        hit = url.lower() in self.cached or fqdn.lower() in self.cached or fqdn.lower() in self.live_domains
+        detail = "PhishTank / community database hit" if hit else "PhishTank active: clean"
         return verdict(self.name, "listed" if hit else "clean", 0.90, detail)
 
 

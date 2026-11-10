@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 from typing import Optional
 
 from .core.normalize import canonical_url, split_domain
-from .core.safe_http import fetch_chain
+from .core.safe_http import fetch_chain, fetch_chain_with_signals
 from .core.ssrf import UrlBlocked, validate_url
 from .db.storage import Storage
 from .services import correlation as corr
@@ -140,10 +140,92 @@ class Sentinel:
             except Exception:
                 ct_data = {}
 
-            # 5. Pinned-IP safe redirect chain fetch
-            hops, _, _ = fetch_chain(a["canonical_url"], self.resolver)
+            # 5. Pinned-IP safe redirect chain fetch & passive live HTML signal inspection
+            hops, _, _, page_signals = fetch_chain_with_signals(a["canonical_url"], self.resolver)
+
+            final_domain = reg_domain
+            final_url = a["canonical_url"]
+            if hops and hops[-1].get("url"):
+                hop_canon = canonical_url(hops[-1]["url"])
+                if hop_canon != a["canonical_url"]:
+                    final_url = hop_canon
+                    dest_analysis = url_analysis.analyse(hop_canon)
+                    final_domain = dest_analysis["domain"]["registrable"]
+                    inds[("url", hop_canon)] = "verified"
+                    if final_domain:
+                        inds[("domain", final_domain)] = "verified"
+                    if final_domain != reg_domain:
+                        a["flags"].append({
+                            "code": "cross_domain_redirect",
+                            "points": 12,
+                            "detail": f"Redirects across domains to {final_domain}"
+                        })
+                        a["score"] = min(100, a["score"] + 12)
+                    if dest_analysis["score"] > 0:
+                        existing_codes = {f["code"] for f in a["flags"]}
+                        for fl in dest_analysis["flags"]:
+                            if fl["code"] not in existing_codes:
+                                a["flags"].append({
+                                    "code": f"redirect_{fl['code']}",
+                                    "points": fl["points"],
+                                    "detail": f"Redirect target: {fl['detail']}"
+                                })
+                                a["score"] = min(100, a["score"] + fl["points"])
+                        if dest_analysis.get("brand") and not a.get("brand"):
+                            a["brand"] = dest_analysis["brand"]
+
+            if page_signals:
+                title_low = page_signals.get("title", "").lower()
+                has_pw = page_signals.get("has_password_form", False)
+                has_otp = page_signals.get("has_otp_form", False)
+                is_young = bool(rdap_info.get("is_young"))
+
+                if has_pw and (is_young or a["score"] >= 12 or has_otp):
+                    a["flags"].append({
+                        "code": "live_password_harvest_form",
+                        "points": 20,
+                        "detail": "Live page contains password/credential input form on suspicious infrastructure"
+                    })
+                    a["score"] = min(100, a["score"] + 20)
+
+                if page_signals.get("has_crypto_drainer_lure"):
+                    is_official_web3 = any(
+                        url_analysis.is_official_brand_domain(b, final_domain)
+                        for b in ("metamask", "trustwallet", "uniswap", "opensea", "coinbase", "binance", "ledger", "trezor", "phantom")
+                    )
+                    if not is_official_web3:
+                        a["flags"].append({
+                            "code": "live_crypto_drainer_signals",
+                            "points": 30,
+                            "detail": "Live page requests wallet connection, seed phrase, or airdrop claim on unofficial domain"
+                        })
+                        a["score"] = min(100, a["score"] + 30)
+
+                for b in url_analysis.BRANDS:
+                    if url_analysis.is_official_brand_domain(b, final_domain):
+                        continue
+                    if b in title_low and (has_pw or has_otp or a["score"] >= 15):
+                        a["flags"].append({
+                            "code": "live_page_brand_impersonation",
+                            "points": 35,
+                            "detail": f"Live page title impersonates '{b}' while collecting credentials on '{final_domain}'"
+                        })
+                        a["score"] = min(100, a["score"] + 35)
+                        if not a.get("brand"):
+                            a["brand"] = b
+                        break
 
         checks = self._feed_checks(a["canonical_url"], fqdn)
+        if not self.offline and hops and hops[-1].get("url"):
+            dest_canon = canonical_url(hops[-1]["url"])
+            if dest_canon != a["canonical_url"]:
+                dest_fqdn = split_domain(urlsplit(dest_canon).hostname or "")["fqdn"]
+                dest_checks = self._feed_checks(dest_canon, dest_fqdn)
+                # Keep any listed verdict discovered at redirect destination
+                listed_map = {c["source"]: c for c in dest_checks if c["status"] == "listed"}
+                for i, c in enumerate(checks):
+                    if c["status"] != "listed" and c["source"] in listed_map:
+                        checks[i] = listed_map[c["source"]]
         return {
             "analysis": a,
             "ips": ips,

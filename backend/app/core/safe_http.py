@@ -1,5 +1,6 @@
 """Minimal safe fetcher: pinned IP, re-validated redirects, size/time limits, no JS, nothing kept."""
 import http.client
+import re
 import socket
 import ssl
 from urllib.parse import urljoin, urlsplit
@@ -43,23 +44,59 @@ def fetch_once(url: str, method: str = "GET", resolver=socket.getaddrinfo):
         conn.close()
 
 
-def fetch_chain(url: str, resolver=socket.getaddrinfo):
-    """Follow redirects manually. Returns (hops, final_headers, final_status). Every hop is re-validated."""
+def extract_page_signals(body: bytes) -> dict:
+    """Extract lightweight threat signals from live HTML response in memory (nothing persisted)."""
+    if not body:
+        return {}
+    text = body[:250_000].decode("utf-8", "ignore")
+    low = text.lower()
+    title_m = re.search(r"<title[^>]*>(.*?)</title>", text, re.IGNORECASE | re.DOTALL)
+    title = re.sub(r"\s+", " ", title_m.group(1)).strip()[:120] if title_m else ""
+    has_password = bool(re.search(r'<input[^>]+type\s*=\s*["\']?password', low))
+    has_otp = bool(re.search(r'(one[\s\-_]*time[\s\-_]*password|enter\s+otp|verification\s+code|2fa\s+code)', low))
+    has_crypto_drainer = any(k in low for k in (
+        "connect wallet", "seed phrase", "recovery phrase", "12 word", "24 word",
+        "claim airdrop", "validate wallet", "synchronize wallet", "metamask", "trust wallet"
+    ))
+    meta_refresh = ""
+    meta_m = re.search(r'<meta[^>]+http-equiv\s*=\s*["\']?refresh[^>]+content\s*=\s*["\'][^"\']*url\s*=\s*([^"\'\s>]+)', text, re.IGNORECASE)
+    if meta_m:
+        meta_refresh = meta_m.group(1).strip()
+    return {
+        "title": title,
+        "has_password_form": has_password,
+        "has_otp_form": has_otp,
+        "has_crypto_drainer_lure": has_crypto_drainer,
+        "meta_refresh_url": meta_refresh,
+        "text_sample": re.sub(r"<[^>]+>", " ", low)[:4000]
+    }
+
+
+def fetch_chain_with_signals(url: str, resolver=socket.getaddrinfo):
+    """Follow redirects manually and extract passive HTML signals from final page."""
     hops, current = [], url
+    last_body, last_headers, last_status = b"", {}, None
     for _ in range(MAX_REDIRECTS + 1):
         try:
-            status, headers, _body, ip = fetch_once(current, "GET", resolver)
+            status, headers, body, ip = fetch_once(current, "GET", resolver)
         except UrlBlocked as e:
             hops.append({"url": current, "blocked": e.reason})
-            return hops, {}, None
+            return hops, {}, None, {}
         except (OSError, ssl.SSLError, http.client.HTTPException) as e:
             hops.append({"url": current, "error": str(e)[:120]})
-            return hops, {}, None
+            return hops, {}, None, {}
         hops.append({"url": current, "status": status, "ip": ip})
+        last_body, last_headers, last_status = body, headers, status
         loc = headers.get("location")
         if status in (301, 302, 303, 307, 308) and loc:
             current = urljoin(current, loc)
             continue
-        return hops, headers, status
+        return hops, last_headers, last_status, extract_page_signals(last_body)
     hops.append({"url": current, "error": "too many redirects"})
-    return hops, {}, None
+    return hops, {}, None, {}
+
+
+def fetch_chain(url: str, resolver=socket.getaddrinfo):
+    """Follow redirects manually. Returns (hops, final_headers, final_status). Every hop is re-validated."""
+    hops, headers, status, _ = fetch_chain_with_signals(url, resolver)
+    return hops, headers, status
