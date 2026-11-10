@@ -104,58 +104,53 @@ class GeminiLLMProvider:
 
 
 class RuleBasedLLMProvider:
-    """Deterministic rule-based reasoning engine providing structured LLM-equivalent analysis when offline."""
+    """Zero-cost local AI & deterministic reasoning engine for multilingual scam analysis."""
     def analyse(self, text: str, language: str) -> Optional[dict]:
+        from . import ai_engine
         low = text.lower()
         evidence = []
         signals = []
         brand = None
 
-        # Detect brands
-        known_brands = ["sbi", "hdfc", "icici", "axis", "paytm", "phonepe", "amazon", "flipkart", "india post", "rbi"]
+        # Detect impersonated brands globally & regionally
+        known_brands = [
+            "sbi", "hdfc", "icici", "axis", "kotak", "paytm", "phonepe", "gpay",
+            "amazon", "flipkart", "india post", "indiapost", "rbi", "paypal",
+            "chase", "microsoft", "google", "apple", "netflix", "binance", "metamask", "discord"
+        ]
         for b in known_brands:
             if b in low:
                 brand = b.upper()
                 break
 
-        # Collect evidence substrings
-        patterns = {
-            "urgency": ["urgent", "immediately", "within 24 hours", "तुरंत", "अभी", "অবিলম্বে", "এখনই", "ഉടൻ"],
-            "threat": ["blocked", "suspended", "closed", "बंद", "ब्लॉक", "বন্ধ", "ബ്ലോക്ക്"],
-            "credential_request": ["otp", "pin", "cvv", "password", "ओटीपी", "পাসওয়ার্ড", "ഒടിപി"],
-            "reward": ["won", "prize", "lottery", "cashback", "इनाम", "লটারি", "സമ്മാനം"],
-            "payment_ask": ["upi", "processing fee", "send money", "টাকা পাঠান", "പണം"]
-        }
-
-        for sig, words in patterns.items():
-            for w in words:
-                idx = low.find(w)
-                if idx != -1:
-                    actual_quote = text[idx:idx + len(w)]
+        # Collect verbatim evidence substrings from message
+        for w, (sig, _) in ai_engine.MSG_INTENT_WEIGHTS.items():
+            idx = low.find(w)
+            if idx != -1:
+                actual_quote = text[idx:idx + len(w)]
+                if actual_quote not in evidence:
                     evidence.append(actual_quote)
+                if sig not in signals:
                     signals.append(sig)
-                    break
 
-        category = "legitimate_or_unclear"
-        if "credential_request" in signals or ("threat" in signals and "urgency" in signals):
-            category = "kyc_bank_phishing"
-        elif "reward" in signals:
-            category = "lottery_prize"
-        elif "payment_ask" in signals:
-            category = "upi_payment_request"
+        ml_res = ai_engine.evaluate_message_with_ai(text, language=language)
+        category = ml_res.get("threat_type", "legitimate_or_unclear")
+        conf = ml_res.get("confidence", 0.3) if evidence else 0.3
 
         precautions = [
-            "Do not click on links or share personal details.",
-            "Verify any account status directly through official bank applications or branches."
+            "Do not click on embedded links or share personal details.",
+            "Verify account alerts directly via the official mobile app or verified website."
         ]
         if "credential_request" in signals:
-            precautions.append("Banks never ask for OTP, PIN, or CVV over SMS or phone.")
+            precautions.append("Legitimate institutions never ask for OTP, PIN, CVV, or seed phrases via chat or SMS.")
+        if "payment_ask" in signals or "delivery_scam" in signals:
+            precautions.append("Never pay redelivery fees or processing charges via unverified UPI links.")
 
         return {
             "category": category,
-            "confidence": 0.85 if evidence else 0.3,
+            "confidence": round(max(conf, 0.85 if evidence else 0.3), 2),
             "impersonated_brand": brand,
-            "evidence": evidence,
+            "evidence": evidence[:8],
             "manipulation_signals": list(set(signals)),
             "precautions": precautions
         }

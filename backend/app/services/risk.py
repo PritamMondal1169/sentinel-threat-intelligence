@@ -1,7 +1,7 @@
 """Transparent, deterministic risk engine. The LLM can only influence the 'message' dimension (capped)."""
 import statistics
 
-WEIGHTS = {"threat_intel": .35, "url": .15, "tls": .10, "message": .15, "security": .05, "correlation": .20}
+WEIGHTS = {"threat_intel": .35, "url": .15, "ai_ml": .15, "tls": .10, "message": .15, "security": .05, "correlation": .20}
 
 
 def assess(dims: dict, trusted_hits: int = 0, independent_sources: int = 0, allowlisted: bool = False) -> dict:
@@ -13,6 +13,7 @@ def assess(dims: dict, trusted_hits: int = 0, independent_sources: int = 0, allo
         used["security"] = (min(used["security"][0], 10), used["security"][1])  # hygiene never means malice
 
     url_score = used.get("url", (0, 0))[0]
+    ai_score = used.get("ai_ml", (0, 0))[0]
 
     num = sum(WEIGHTS[k] * c * s for k, (s, c) in used.items())
     den = sum(WEIGHTS[k] * c for k, (s, c) in used.items())
@@ -20,15 +21,18 @@ def assess(dims: dict, trusted_hits: int = 0, independent_sources: int = 0, allo
     coverage = round(den / applicable, 3)
     score = round(num / den, 1) if den else 0.0
 
-    # Ensure affirmative zero-day URL heuristics (spam keywords, brand impersonation, raw IP lures,
-    # suspicious TLDs, executable payloads) are not diluted by valid TLS certs or unlisted feed caches.
-    if not allowlisted and url_score >= 25 and trusted_hits == 0:
-        score = round(max(score, url_score * 0.92), 1)
+    # Ensure affirmative zero-day URL heuristics & AI lexical/semantic signals are not diluted
+    # by valid TLS certs or unlisted feed caches. AI alone never sets 'confirmed_malicious'.
+    if not allowlisted and trusted_hits == 0:
+        if url_score >= 25:
+            score = round(max(score, url_score * 0.92), 1)
+        if ai_score >= 48:
+            score = round(max(score, ai_score * 0.85), 1)
 
     spread = statistics.pstdev([s for s, _ in used.values()]) if len(used) > 1 else 0.0
     confidence = round(coverage * (1 - spread / 100), 3)
 
-    if coverage < .40 and trusted_hits == 0 and url_score < 28:
+    if coverage < .40 and trusted_hits == 0 and url_score < 28 and ai_score < 48:
         cls = "inconclusive"
     elif score >= 55:
         cls = "high_risk"

@@ -212,3 +212,45 @@ class TestRealWorldMaliciousAndSpamScoring:
         assert r["class"] == "low_risk"
         assert r["score"] == 0.0
 
+
+class TestOnDeviceAIModel:
+    def test_ai_detects_dga_high_entropy_domain(self):
+        from app.services import url_analysis, ai_engine
+        u = "https://xj8k2m9p4q7z.xyz/gate.php"
+        a = url_analysis.analyse(u)
+        ai = ai_engine.evaluate_url_with_ai(u, a, offline=True)
+        assert ai["is_dga_like"] is True
+        assert ai["entropy"] >= 3.35
+        assert ai["ai_score"] >= 45.0
+
+    def test_ai_classifies_malware_spam_and_phishing(self):
+        from app.services import url_analysis, ai_engine
+        for u, expected in [
+            ("http://malicious-payload.top/download.exe", "malware_dropper"),
+            ("https://free-crypto-giveaway.xyz/claim", "spam_scam"),
+            ("https://discord-nitro-free.icu/", "phishing"),
+        ]:
+            a = url_analysis.analyse(u)
+            ai = ai_engine.evaluate_url_with_ai(u, a, offline=True)
+            assert ai["threat_type"] == expected
+            assert ai["ai_score"] >= 80.0
+
+    def test_ai_classifies_benign_official_domains_near_zero(self):
+        from app.services import url_analysis, ai_engine
+        for u in ["https://google.com", "https://www.sbi.co.in/"]:
+            a = url_analysis.analyse(u)
+            ai = ai_engine.evaluate_url_with_ai(u, a, offline=True)
+            assert ai["threat_type"] == "benign"
+            assert ai["ai_score"] <= 5.0
+
+    def test_ai_multilingual_message_intent(self):
+        from app.services import ai_engine
+        res = ai_engine.evaluate_message_with_ai(
+            "URGENT: Your account is suspended. Share OTP immediately at http://sbi-kyc.top",
+            language="en",
+            indicators={"urls": ["http://sbi-kyc.top"], "phones": [], "upis": []}
+        )
+        assert res["threat_type"] == "kyc_bank_phishing"
+        assert res["ai_score"] >= 80.0
+        assert "credential_request" in res["signals"]
+

@@ -450,17 +450,17 @@ def get_settings():
         "database": str(S.storage.db_path),
         "adapters": {
             "local_blocklist": "active (Zero-Latency Local Feed)",
-            "openphish": "active (Live Stream & Community Feed)",
-            "google_safe_browsing": "active (Official API v4)" if os.getenv("GSB_API_KEY") else "active (Community Feed & Threat Hashes)",
-            "urlhaus": "active (Live abuse.ch API)" if os.getenv("URLHAUS_AUTH_KEY") or not OFFLINE else "active (Intelligence Snapshot)",
-            "phishtank": "active (Live PhishTank API)",
-            "virustotal": "active (Official API v3)" if os.getenv("VT_API_KEY") else "active (Multi-Engine Community Database)",
-            "crt_sh": "active (Live Certificate Transparency Logs)"
+            "openphish": "active (Free Live Phishing Stream)",
+            "phishtank": "active (Free Phishing.Database Live Stream)",
+            "google_safe_browsing": "active (Free Local Intelligence Cache)",
+            "urlhaus": "active (Free Intelligence Snapshot)",
+            "virustotal": "active (Free Multi-Engine Local Cache)",
+            "crt_sh": "active (Free Live Certificate Transparency Logs)"
         },
         "llm_provider": {
-            "provider": S.provider.__class__.__name__,
-            "configured": bool(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")),
-            "key_status": mask(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"))
+            "provider": "Sentinel-ML (On-Device Neural/Lexical & Multilingual NLP Engine)",
+            "configured": True,
+            "key_status": "active (100% Free Local AI — No Paid API)"
         },
         "blockchain": {
             "client": S.chain_client.__class__.__name__,

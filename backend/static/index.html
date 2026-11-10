@@ -444,10 +444,10 @@
             </button>
           </div>
           <div style="margin-top: 14px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">
+            <span class="chip" style="background: rgba(147,51,234,0.12); color: #C084FC; border: 1px solid rgba(147,51,234,0.3);">🤖 Sentinel-ML Local AI Engine (100% Free)</span>
             <span class="chip" style="background: rgba(0,255,157,0.1); color: var(--g); border: 1px solid rgba(0,255,157,0.25);">● Real-Time URL &amp; Brand Impersonation Engine</span>
-            <span class="chip" style="background: rgba(0,216,246,0.1); color: var(--cy); border: 1px solid rgba(0,216,246,0.25);">● 6 Live Threat Feeds (URLhaus, OpenPhish, PhishTank, GSB, VT)</span>
-            <span class="chip" style="background: rgba(255,184,0,0.1); color: var(--a); border: 1px solid rgba(255,184,0,0.25);">● Live DNS, RDAP &amp; Certificate Transparency (crt.sh)</span>
-            <span class="chip" style="background: rgba(147,51,234,0.1); color: #C084FC; border: 1px solid rgba(147,51,234,0.25);">● Multilingual Scam DNA Intelligence</span>
+            <span class="chip" style="background: rgba(0,216,246,0.1); color: var(--cy); border: 1px solid rgba(0,216,246,0.25);">● Free Live Feeds (OpenPhish, Phishing.Database, Snapshot Caches)</span>
+            <span class="chip" style="background: rgba(255,184,0,0.1); color: var(--a); border: 1px solid rgba(255,184,0,0.25);">● Live DNS, RDAP, HTML &amp; Certificate Transparency (crt.sh)</span>
           </div>
         </div>
 
@@ -956,6 +956,27 @@
       }
     }
 
+    function renderAiPanel(ai) {
+      if (!ai || !ai.provider) return '';
+      const probPct = ai.ai_score !== undefined ? ai.ai_score : Math.round((ai.risk_probability || 0) * 100);
+      const isRisky = probPct >= 45;
+      const borderCol = probPct >= 65 ? 'var(--r)' : (probPct >= 30 ? 'var(--a)' : 'var(--g)');
+      const bgCol = probPct >= 65 ? 'rgba(255,59,92,0.08)' : (probPct >= 30 ? 'rgba(255,184,0,0.08)' : 'rgba(0,255,157,0.06)');
+      const attrs = (ai.attributions || []).map(at =>
+        `<span class="chip" style="font-size:11px; margin-right:6px; margin-top:4px; display:inline-block;">${esc(at.feature)} <b>(${at.impact > 0 ? '+' : ''}${at.impact})</b></span>`
+      ).join('');
+      return `
+        <div style="margin: 14px 0; padding: 12px 14px; background: ${bgCol}; border-left: 3px solid ${borderCol}; border-radius: 6px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:6px;">
+            <span style="font-weight:700; font-size:13px; color:#C084FC;">🤖 AI Threat Classification: <code style="color:${borderCol}; font-size:13px;">${esc((ai.threat_type || 'unknown').toUpperCase())}</code></span>
+            <span class="chip" style="background:rgba(147,51,234,0.16); color:#E9D5FF; font-size:11px;">${esc(ai.provider)} · Malicious Prob: <b>${probPct}%</b>${ai.entropy !== undefined ? ' · Entropy H=' + ai.entropy : ''}</span>
+          </div>
+          <div class="small" style="color:var(--tx); margin-bottom:4px;">${esc(ai.summary || '')}</div>
+          ${attrs ? `<div style="margin-top:4px;">${attrs}</div>` : ''}
+        </div>
+      `;
+    }
+
     function renderQuickResult(inv) {
       const r = inv.risk;
       const res = inv.result;
@@ -971,6 +992,8 @@
           <button class="btn-cyan btn-sm" onclick="createAndCommitReport('${inv.id}')">Anchoring Commit</button>
         </div>
       </div>`;
+
+      html += renderAiPanel(res?.ai_analysis);
 
       if (res?.analysis?.brand) {
         html += `<div style="margin: 12px 0; padding: 10px 14px; background: rgba(255, 59, 92, 0.12); border-left: 3px solid var(--r); border-radius: 4px;">
@@ -1100,6 +1123,7 @@
           </div>
           <button class="btn-cyan btn-sm" onclick="createAndCommitReport('${inv.id}')">Anchor Report</button>
         </div>
+        ${renderAiPanel(inv.result.ai_analysis)}
       </div>`;
 
       h += `<div class="grid grid-2" style="margin-bottom:16px;">
@@ -1175,6 +1199,7 @@
           </div>
           <button class="btn-cyan btn-sm" onclick="createAndCommitReport('${inv.id}')">Anchor Report</button>
         </div>
+        ${renderAiPanel(res?.ai_analysis)}
       </div>`;
 
       h += `<div class="grid grid-2" style="margin-bottom:16px;">

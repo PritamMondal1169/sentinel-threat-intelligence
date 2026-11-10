@@ -1,6 +1,7 @@
 """Investigation Orchestrator: one unified pipeline, shared indicator store,
 Scam DNA Engine, explainable correlation, emerging radar, and tamper-evident reports.
 """
+from concurrent.futures import ThreadPoolExecutor
 import re
 import socket
 import uuid
@@ -12,6 +13,7 @@ from .core.normalize import canonical_url, split_domain
 from .core.safe_http import fetch_chain, fetch_chain_with_signals
 from .core.ssrf import UrlBlocked, validate_url
 from .db.storage import Storage
+from .services import ai_engine
 from .services import correlation as corr
 from .services import crtsh
 from .services import dns_rdap
@@ -62,6 +64,9 @@ class Sentinel:
 
     # ---------- feed checks & dimension scoring ----------
     def _feed_checks(self, url: str, fqdn: str) -> list[dict]:
+        if not self.offline and len(self.feeds) > 1:
+            with ThreadPoolExecutor(max_workers=min(len(self.feeds), 6)) as pool:
+                return list(pool.map(lambda f: f.check(url, fqdn), self.feeds))
         return [f.check(url, fqdn) for f in self.feeds]
 
     def _ti_dimension(self, checks: list[dict]):
@@ -75,7 +80,7 @@ class Sentinel:
         return (0, 0.35), 0, 0
 
     def _url_core(self, url: str) -> dict:
-        """Module 1 (+ Module 2 when online) for one URL. Returns evidence + indicators."""
+        """Module 1 (+ Module 2 + AI Threat Engine when online) for one URL. Returns evidence + indicators."""
         url = url.strip()
         if not re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", url):
             url = "http://" + url
@@ -90,13 +95,13 @@ class Sentinel:
         a = url_analysis.analyse(url)
         fqdn = a["domain"]["fqdn"]
         reg_domain = a["domain"]["registrable"]
-        ips, tls, hops, dns_records, rdap_info, ct_data = [], None, [], {}, {}, {}
+        ips, tls, hops, dns_records, rdap_info, ct_data, page_signals = [], None, [], {}, {}, {}, {}
         inds = {("domain", fqdn): "verified", ("url", a["canonical_url"]): "verified"}
         if reg_domain and reg_domain != fqdn:
             inds[("domain", reg_domain)] = "verified"
 
         if not self.offline:
-            # 1. DNS Resolution
+            # 1. DNS Resolution first (avoid wasted timeouts if domain does not resolve)
             try:
                 dns_records = dns_rdap.query_dns_records(fqdn)
                 ips = dns_records.get("A", [])
@@ -107,48 +112,65 @@ class Sentinel:
             for ns in dns_records.get("NS", [])[:2]:
                 inds[("nameserver", ns.lower().rstrip("."))] = "verified"
 
-            # 2. RDAP Age Lookup
-            try:
-                rdap_info = dns_rdap.query_rdap_age(reg_domain)
-                if rdap_info.get("is_young"):
-                    a["flags"].append({
-                        "code": "newly_registered_domain",
-                        "points": 18,
-                        "detail": f"Domain registered recently ({rdap_info.get('domain_age_days')} days old)"
-                    })
-                    a["score"] = min(100, a["score"] + 18)
-            except Exception:
-                pass
-
-            # 3. TLS Certificate Inspection
-            if urlsplit(a["canonical_url"]).scheme == "https" or True:
+            # 2. Run RDAP, crt.sh, feeds, and (if IP resolved) TLS + HTTP fetch concurrently
+            def _do_rdap():
                 try:
-                    tls = tls_service.inspect(fqdn, resolver=self.resolver)
+                    return dns_rdap.query_rdap_age(reg_domain)
+                except Exception:
+                    return {}
+
+            def _do_crtsh():
+                try:
+                    raw_ct = crtsh.query_crtsh(reg_domain)
+                    return crtsh.crtsh_summary(raw_ct, fqdn)
+                except Exception:
+                    return {}
+
+            def _do_tls():
+                if not ips:
+                    return {"error": "domain_unresolved"}
+                try:
+                    return tls_service.inspect(fqdn, resolver=self.resolver)
                 except Exception as e:
-                    tls = {"error": str(e)[:120]}
-                if tls and tls.get("cert_sha256"):
-                    inds[("cert", tls["cert_sha256"])] = "verified"
-                    if tls.get("spki_sha256"):
-                        inds[("spki", tls["spki_sha256"])] = "verified"
-                    # Store cert observation in persistent history
-                    self.storage.save_cert_observation(fqdn, tls)
+                    return {"error": str(e)[:120]}
 
-            # 4. Certificate Transparency (crt.sh)
-            try:
-                raw_ct = crtsh.query_crtsh(reg_domain)
-                ct_data = crtsh.crtsh_summary(raw_ct, fqdn)
-            except Exception:
-                ct_data = {}
+            def _do_fetch():
+                if not ips:
+                    return [], {}, None, {}
+                return fetch_chain_with_signals(a["canonical_url"], self.resolver)
 
-            # 5. Pinned-IP safe redirect chain fetch & passive live HTML signal inspection
-            hops, _, _, page_signals = fetch_chain_with_signals(a["canonical_url"], self.resolver)
+            with ThreadPoolExecutor(max_workers=5) as pool:
+                f_rdap = pool.submit(_do_rdap)
+                f_ct = pool.submit(_do_crtsh)
+                f_tls = pool.submit(_do_tls)
+                f_http = pool.submit(_do_fetch)
+                f_feeds = pool.submit(self._feed_checks, a["canonical_url"], fqdn)
+
+                rdap_info = f_rdap.result()
+                ct_data = f_ct.result()
+                tls = f_tls.result()
+                hops, _, _, page_signals = f_http.result()
+                checks = f_feeds.result()
+
+            if rdap_info.get("is_young"):
+                a["flags"].append({
+                    "code": "newly_registered_domain",
+                    "points": 18,
+                    "detail": f"Domain registered recently ({rdap_info.get('domain_age_days')} days old)"
+                })
+                a["score"] = min(100, a["score"] + 18)
+
+            if tls and tls.get("cert_sha256"):
+                inds[("cert", tls["cert_sha256"])] = "verified"
+                if tls.get("spki_sha256"):
+                    inds[("spki", tls["spki_sha256"])] = "verified"
+                # Store cert observation in persistent SQLite history on main thread
+                self.storage.save_cert_observation(fqdn, tls)
 
             final_domain = reg_domain
-            final_url = a["canonical_url"]
             if hops and hops[-1].get("url"):
                 hop_canon = canonical_url(hops[-1]["url"])
                 if hop_canon != a["canonical_url"]:
-                    final_url = hop_canon
                     dest_analysis = url_analysis.analyse(hop_canon)
                     final_domain = dest_analysis["domain"]["registrable"]
                     inds[("url", hop_canon)] = "verified"
@@ -215,19 +237,37 @@ class Sentinel:
                             a["brand"] = b
                         break
 
-        checks = self._feed_checks(a["canonical_url"], fqdn)
-        if not self.offline and hops and hops[-1].get("url"):
-            dest_canon = canonical_url(hops[-1]["url"])
-            if dest_canon != a["canonical_url"]:
-                dest_fqdn = split_domain(urlsplit(dest_canon).hostname or "")["fqdn"]
-                dest_checks = self._feed_checks(dest_canon, dest_fqdn)
-                # Keep any listed verdict discovered at redirect destination
-                listed_map = {c["source"]: c for c in dest_checks if c["status"] == "listed"}
-                for i, c in enumerate(checks):
-                    if c["status"] != "listed" and c["source"] in listed_map:
-                        checks[i] = listed_map[c["source"]]
+            if hops and hops[-1].get("url"):
+                dest_canon = canonical_url(hops[-1]["url"])
+                if dest_canon != a["canonical_url"]:
+                    dest_fqdn = split_domain(urlsplit(dest_canon).hostname or "")["fqdn"]
+                    dest_checks = self._feed_checks(dest_canon, dest_fqdn)
+                    listed_map = {c["source"]: c for c in dest_checks if c["status"] == "listed"}
+                    for i, c in enumerate(checks):
+                        if c["status"] != "listed" and c["source"] in listed_map:
+                            checks[i] = listed_map[c["source"]]
+        else:
+            checks = self._feed_checks(a["canonical_url"], fqdn)
+
+        # Tier 1 On-Device ML + Tier 2 Optional Gemini 2.5 Flash Threat Analysis
+        ai_res = ai_engine.evaluate_url_with_ai(
+            a["canonical_url"],
+            a,
+            page_signals=page_signals,
+            rdap_info=rdap_info,
+            offline=self.offline,
+        )
+        if ai_res.get("is_dga_like"):
+            a["flags"].append({
+                "code": "ai_dga_entropy_anomaly",
+                "points": 15,
+                "detail": f"AI detected high domain entropy / DGA-like structure (H={ai_res.get('entropy')})"
+            })
+            a["score"] = min(100, a["score"] + 15)
+
         return {
             "analysis": a,
+            "ai_analysis": ai_res,
             "ips": ips,
             "dns": dns_records,
             "rdap": rdap_info,
@@ -271,8 +311,11 @@ class Sentinel:
     def investigate_url(self, url: str, submitter: str = "anon", demo: bool = False) -> dict:
         core = self._url_core(url)
         a = core["analysis"]
+        ai_res = core.get("ai_analysis") or {}
         ti, trusted, listed = self._ti_dimension(core["feeds"])
         dims = {"url": (a["score"], 0.7)}
+        if ai_res:
+            dims["ai_ml"] = (ai_res["ai_score"], ai_res["confidence"])
         if ti:
             dims["threat_intel"] = ti
         tls_dim = self._tls_dim(core["tls"])
@@ -289,6 +332,7 @@ class Sentinel:
             "input": url,
             "result": {
                 "analysis": a,
+                "ai_analysis": ai_res,
                 "ips": core["ips"],
                 "dns": core.get("dns", {}),
                 "rdap": core.get("rdap", {}),
@@ -300,6 +344,7 @@ class Sentinel:
             "indicators": core["indicators"],
             "steps": {
                 "feeds": "ok" if ti else "unavailable",
+                "ai": "ok" if ai_res else "skipped",
                 "tls": "skipped" if self.offline else "ok",
                 "dns": "skipped" if self.offline else "ok",
                 "rdap": "skipped" if self.offline else "ok",
@@ -352,7 +397,9 @@ class Sentinel:
             self.storage.save_template(tid, m["minhash"])
         inds[("template", tid)] = "verified"
 
+        ai_msg_res = ai_engine.evaluate_message_with_ai(text, language=m["language"], indicators=ind)
         dims = {"message": (m["score"], 0.6 if m["language"] in ("en", "hi") else 0.5)}
+        dims["ai_ml"] = (ai_msg_res["ai_score"], ai_msg_res["confidence"])
         if url_scores:
             dims["url"] = (max(url_scores), 0.7)
         if ti_scores:
@@ -369,10 +416,11 @@ class Sentinel:
             "input_hash": reports.commitment({"t": text}, b""),
             "result": {
                 k: v for k, v in m.items() if k != "minhash"
-            } | {"child_urls": children, "template_id": tid},
+            } | {"child_urls": children, "template_id": tid, "ai_analysis": ai_msg_res},
             "indicators": inds,
             "steps": {
                 "message_rules": "ok",
+                "ai": "ok",
                 "llm": "ok" if m["llm"] else "skipped",
                 "child_urls": "ok" if children else "none"
             }
