@@ -80,7 +80,7 @@ pip install -r requirements.txt
 ```bash
 cp .env.example .env
 ```
-*(SENTINEL runs out of the box with zero configuration! Set `SENTINEL_OFFLINE=false` for live public feeds, and optionally add `GEMINI_API_KEY` for LLM analysis.)*
+*(SENTINEL runs out of the box with 100% free on-device `Sentinel-ML` AI threat detection and live open feeds—no paid API keys required.)*
 
 ### 3. Run the Dashboard
 ```bash
@@ -97,7 +97,7 @@ Open **[http://localhost:8000](http://localhost:8000)** in your browser.
 ```bash
 pytest backend/tests -v
 ```
-*All 79 unit, integration, and security benchmark tests run in ~1.5 seconds.*
+*All 96 unit, integration, AI/ML, and security benchmark tests run in ~2.4 seconds.*
 
 ---
 
