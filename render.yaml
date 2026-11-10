@@ -16,5 +16,7 @@ services:
         value: "/app/data/sentinel.db"
       - key: SENTINEL_ADMIN_PASSWORD
         generateValue: true
+      - key: SENTINEL_ANALYST_PASSWORD
+        generateValue: true
       - key: SENTINEL_JWT_SECRET
         generateValue: true

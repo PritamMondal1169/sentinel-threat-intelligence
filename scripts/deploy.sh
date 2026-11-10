@@ -35,13 +35,16 @@ if [ ! -f .env ]; then
     # Generate secure random secret for JWT
     JWT_SECRET=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))" 2>/dev/null || openssl rand -hex 32 2>/dev/null || date +%s | sha256sum | head -c 32)
     ADMIN_PASS=$(python3 -c "import secrets; print(secrets.token_urlsafe(16))" 2>/dev/null || openssl rand -hex 16 2>/dev/null || echo "SentinelAdmin2026!")
+    ANALYST_PASS=$(python3 -c "import secrets; print(secrets.token_urlsafe(16))" 2>/dev/null || openssl rand -hex 16 2>/dev/null || echo "SentinelAnalyst2026!")
 
     sed -i.bak "s/SENTINEL_JWT_SECRET=.*/SENTINEL_JWT_SECRET=${JWT_SECRET}/" .env && rm -f .env.bak
     sed -i.bak "s/SENTINEL_ADMIN_PASSWORD=.*/SENTINEL_ADMIN_PASSWORD=${ADMIN_PASS}/" .env && rm -f .env.bak
+    sed -i.bak "s/SENTINEL_ANALYST_PASSWORD=.*/SENTINEL_ANALYST_PASSWORD=${ANALYST_PASS}/" .env && rm -f .env.bak
 
     echo "[+] Generated random JWT Secret."
-    echo "[+] Generated Initial Admin Password: ${ADMIN_PASS}"
-    echo "    (Stored in .env — make sure to save it safely!)"
+    echo "[+] Generated Initial Admin Password:   ${ADMIN_PASS}"
+    echo "[+] Generated Initial Analyst Password: ${ANALYST_PASS}"
+    echo "    (Stored in .env — make sure to save them safely!)"
 fi
 
 # 3. Build & Launch Containers
