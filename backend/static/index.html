@@ -602,8 +602,8 @@
         <div class="card" style="margin-bottom: 18px;">
           <h2>Passive Website Security Posture &amp; Remediation</h2>
           <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-            <input type="url" id="sec-url-input" placeholder="https://my-website.example">
-            <button onclick="runSecurityAssessment()">Assess Posture</button>
+            <input type="text" id="sec-url-input" placeholder="e.g. sbi.co.in or https://my-website.example" onkeydown="if(event.key==='Enter') runSecurityAssessment()">
+            <button class="btn-cyan" onclick="runSecurityAssessment()">Assess Posture</button>
           </div>
           <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--mu); cursor: pointer;">
             <input type="checkbox" id="ownership-check" checked>
