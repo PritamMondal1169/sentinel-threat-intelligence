@@ -50,17 +50,26 @@ class Sentinel:
         # In-memory caches synced with storage for rapid correlation
         self.invs: dict[str, dict] = {}
         self.reports: dict[str, dict] = {}
-        self.scans: dict[str, list] = {}  # domain -> posture history
         self.templates: list[tuple[str, list]] = []
+        self._corr_dirty: bool = True
+        self._corr_count: int = -1
+        self._edges: list[dict] = []
+        self._camps: list[dict] = []
 
         self._load_from_storage()
 
     def _load_from_storage(self):
-        """Restore active state from persistent storage."""
+        """Restore active state, templates, reports, and committed ledger records from persistent storage."""
         for inv in self.storage.all_investigations():
             self.invs[inv["id"]] = inv
         for tid, mh in self.storage.get_templates():
             self.templates.append((tid, mh))
+        for rep in self.storage.all_reports():
+            rid = rep["report_id"]
+            self.reports[rid] = rep
+            committed = [v["chain"] for v in rep["versions"] if v.get("chain")]
+            if committed:
+                self.ledger.h[rid] = committed
 
     # ---------- feed checks & dimension scoring ----------
     def _feed_checks(self, url: str, fqdn: str) -> list[dict]:
@@ -287,6 +296,7 @@ class Sentinel:
 
     def _finish(self, inv: dict, dims: dict, trusted: int, listed: int):
         self.invs[inv["id"]] = inv
+        self._corr_dirty = True
         edges, camps = self.correlate()
         mine = [e for e in edges if inv["id"] in (e["a"], e["b"])]
         if mine:
@@ -301,10 +311,14 @@ class Sentinel:
         inv["risk"] = risk.assess(dims, trusted, listed)
         inv["status"] = "completed"
         inv["completed_at"] = now().isoformat()
-        
-        # Persist to database
+
+        # Promote cached campaign status if this completed investigation is high-risk without re-running correlate()
+        if inv["risk"]["class"] in ("high_risk", "confirmed_malicious"):
+            for c in camps:
+                if inv["id"] in c["members"] and c["confidence"] >= 0.7:
+                    c["status"] = "corroborated"
+
         self.storage.save_investigation(inv)
-        self.correlate()
         return inv
 
     # ---------- public API ----------
@@ -497,6 +511,8 @@ class Sentinel:
 
     # ---------- correlation, graph, analytics, radar ----------
     def correlate(self):
+        if not self._corr_dirty and self._corr_count == len(self.invs):
+            return self._edges, self._camps
         invs = [i for i in self.invs.values() if i.get("status") in ("running", "completed")]
         edges = corr.build_edges(invs)
         camps = corr.cluster_campaigns(invs, edges)
@@ -506,6 +522,8 @@ class Sentinel:
             if any(x in ("high_risk", "confirmed_malicious") for x in classes) and c["confidence"] >= 0.7:
                 c["status"] = "corroborated"
         self._edges, self._camps = edges, camps
+        self._corr_dirty = False
+        self._corr_count = len(self.invs)
         return edges, camps
 
     def graph(self, inv_id: str, depth: int = 1, min_confidence: float = 0.4) -> dict:
@@ -696,7 +714,7 @@ class Sentinel:
     # ---------- reports (Module 6) ----------
     def make_report(self, inv_id: str) -> dict:
         inv = self.invs[inv_id]
-        saved = self.storage.get_report(inv_id) or next(
+        saved = self.storage.get_report_by_investigation(inv_id) or next(
             (r for r in self.reports.values() if r.get("investigation_id") == inv_id),
             None
         )

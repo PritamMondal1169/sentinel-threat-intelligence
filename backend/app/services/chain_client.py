@@ -30,7 +30,6 @@ class EVMChainClient:
         self.rpc_url = rpc_url or os.getenv("RPC_URL")
         self.contract_address = contract_address or os.getenv("CONTRACT_ADDRESS")
         self.private_key = private_key or os.getenv("CHAIN_PRIVATE_KEY")
-        self._local_fallback = None
 
     def _rpc_call(self, method: str, params: list) -> dict:
         if not self.rpc_url:
@@ -77,9 +76,8 @@ class EVMChainClient:
             block_hex = self._rpc_call("eth_blockNumber", [])
             block_num = int(block_hex, 16) if block_hex else 1
 
-            # In production, this signs & sends the raw transaction calling:
-            # commit(bytes32 reportId, bytes32 contentHash, uint8 category)
-            # Function selector: 0x9e2467d1 (approx)
+            # shortcut: querying eth_blockNumber only checks RPC reachability; real on-chain
+            # broadcast requires EIP-155 transaction signing via web3/eth_account.
             tx_hash = "0x" + hashlib.sha256(f"evm_{report_id}_{content_hash}_{block_num}".encode()).hexdigest()
             return {
                 "version": 1,
@@ -90,7 +88,8 @@ class EVMChainClient:
                 "tx_hash": tx_hash,
                 "network": os.getenv("CHAIN_NAME", "sepolia"),
                 "contract": self.contract_address,
-                "status": "confirmed",
+                "status": "simulated_unbroadcast",
+                "onchain_broadcast": False,
                 "block": block_num
             }
         except Exception as e:

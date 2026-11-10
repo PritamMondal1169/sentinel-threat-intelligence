@@ -55,16 +55,21 @@ def label(c: float) -> str:
 
 def build_edges(invs: list[dict], min_conf: float = .4) -> list[dict]:
     df = Counter(k for i in invs for k in i["indicators"])
+    by_ind: dict[str, list[int]] = {}
+    for idx, inv in enumerate(invs):
+        for k in inv["indicators"]:
+            by_ind.setdefault(k, []).append(idx)
+    pairs = sorted({(min(a, b), max(a, b)) for idxs in by_ind.values() if len(idxs) > 1
+                    for pos, a in enumerate(idxs) for b in idxs[pos + 1:]})
     edges = []
-    for x in range(len(invs)):
-        for y in range(x + 1, len(invs)):
-            r = pair_confidence(invs[x], invs[y], df)
-            if r["confidence"] >= min_conf:
-                edges.append({"a": invs[x]["id"], "b": invs[y]["id"], "relationship_type": "shares_indicator",
-                              "confidence": r["confidence"], "label": label(r["confidence"]), "shared": r["shared"],
-                              "qualifies": _qualifies(r["shared"]),
-                              "discovered_at": max(invs[x]["ts"], invs[y]["ts"]).isoformat(),
-                              "evidence_source": "sentinel-correlation-v1"})
+    for x, y in pairs:
+        r = pair_confidence(invs[x], invs[y], df)
+        if r["confidence"] >= min_conf:
+            edges.append({"a": invs[x]["id"], "b": invs[y]["id"], "relationship_type": "shares_indicator",
+                          "confidence": r["confidence"], "label": label(r["confidence"]), "shared": r["shared"],
+                          "qualifies": _qualifies(r["shared"]),
+                          "discovered_at": max(invs[x]["ts"], invs[y]["ts"]).isoformat(),
+                          "evidence_source": "sentinel-correlation-v1"})
     return edges
 
 

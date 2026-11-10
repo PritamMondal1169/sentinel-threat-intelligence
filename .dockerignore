@@ -11,3 +11,4 @@ backend/data/.jwt_secret
 backend/tests
 node_modules
 scripts/push_step_by_step.ps1
+

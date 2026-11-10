@@ -6,3 +6,4 @@ data/*.db-*
 data/.jwt_secret
 tests
 .env
+

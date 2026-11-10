@@ -1,9 +1,11 @@
 """SQLite/JSON persistent storage for SENTINEL.
 Stores investigations, indicators, domains, certificates, scans, campaigns, reports, and monitoring.
 """
+from contextlib import contextmanager
 import json
 import os
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -23,6 +25,7 @@ class Storage:
         else:
             self.db_path = Path(db_path)
 
+        self._lock = threading.RLock()
         self._conn = sqlite3.connect(
             str(self.db_path),
             check_same_thread=False,
@@ -38,9 +41,28 @@ class Storage:
                 pass
         self._init_tables()
 
+    @contextmanager
+    def _db(self, tx: bool = False):
+        """Serialize SQLite access across threads and wrap multi-row writes in a transaction."""
+        with self._lock:
+            cur = self._conn.cursor()
+            if tx:
+                cur.execute("BEGIN")
+            try:
+                yield cur
+                if tx:
+                    cur.execute("COMMIT")
+            except Exception:
+                if tx:
+                    try:
+                        cur.execute("ROLLBACK")
+                    except Exception:
+                        pass
+                raise
+
     def _init_tables(self):
-        cur = self._conn.cursor()
-        cur.executescript("""
+        with self._db() as cur:
+            cur.executescript("""
         CREATE TABLE IF NOT EXISTS investigations (
             id TEXT PRIMARY KEY,
             type TEXT NOT NULL,
@@ -150,82 +172,78 @@ class Storage:
 
     # --- Investigations ---
     def save_investigation(self, inv: dict):
-        cur = self._conn.cursor()
         risk = inv.get("risk", {})
         indicators_list = [
             {"type": t, "value": v, "quality": q}
             for (t, v), q in inv.get("indicators", {}).items()
         ]
         created_at = inv["ts"].isoformat() if isinstance(inv["ts"], datetime) else str(inv["ts"])
-        cur.execute("""
-            INSERT OR REPLACE INTO investigations (
-                id, type, submitter, input, input_hash, status,
-                risk_class, risk_score, coverage, confidence, demo,
-                created_at, completed_at, result_json, indicators_json, steps_json, risk_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            inv["id"],
-            inv["type"],
-            inv.get("submitter", "anon"),
-            inv.get("input", ""),
-            inv.get("input_hash"),
-            inv.get("status", "completed"),
-            risk.get("class"),
-            risk.get("score"),
-            risk.get("coverage"),
-            risk.get("confidence"),
-            1 if inv.get("demo") else 0,
-            created_at,
-            inv.get("completed_at"),
-            json.dumps(inv.get("result", {})),
-            json.dumps(indicators_list),
-            json.dumps(inv.get("steps", {})),
-            json.dumps(risk)
-        ))
+        with self._db(tx=True) as cur:
+            cur.execute("""
+                INSERT OR REPLACE INTO investigations (
+                    id, type, submitter, input, input_hash, status,
+                    risk_class, risk_score, coverage, confidence, demo,
+                    created_at, completed_at, result_json, indicators_json, steps_json, risk_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                inv["id"],
+                inv["type"],
+                inv.get("submitter", "anon"),
+                inv.get("input", ""),
+                inv.get("input_hash"),
+                inv.get("status", "completed"),
+                risk.get("class"),
+                risk.get("score"),
+                risk.get("coverage"),
+                risk.get("confidence"),
+                1 if inv.get("demo") else 0,
+                created_at,
+                inv.get("completed_at"),
+                json.dumps(inv.get("result", {})),
+                json.dumps(indicators_list),
+                json.dumps(inv.get("steps", {})),
+                json.dumps(risk)
+            ))
 
-        # Record indicators
-        for (t, v), q in inv.get("indicators", {}).items():
-            cur.execute("""
-                INSERT OR IGNORE INTO indicators (type, value, first_seen)
-                VALUES (?, ?, ?)
-            """, (t, v, created_at))
-            cur.execute("""
-                INSERT INTO indicator_sightings (indicator_type, indicator_value, investigation_id, quality, observed_at)
-                VALUES (?, ?, ?, ?, ?)
-            """, (t, v, inv["id"], q, created_at))
+            for (t, v), q in inv.get("indicators", {}).items():
+                cur.execute("""
+                    INSERT OR IGNORE INTO indicators (type, value, first_seen)
+                    VALUES (?, ?, ?)
+                """, (t, v, created_at))
+                cur.execute("""
+                    INSERT INTO indicator_sightings (indicator_type, indicator_value, investigation_id, quality, observed_at)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (t, v, inv["id"], q, created_at))
 
     def get_investigation(self, iid: str) -> Optional[dict]:
-        cur = self._conn.cursor()
-        row = cur.execute("SELECT * FROM investigations WHERE id = ?", (iid,)).fetchone()
-        if not row:
-            return None
-        return self._row_to_inv(row)
+        with self._db() as cur:
+            row = cur.execute("SELECT * FROM investigations WHERE id = ?", (iid,)).fetchone()
+            return self._row_to_inv(row) if row else None
 
     def list_investigations(self, limit: int = 100, risk_class: Optional[str] = None) -> list[dict]:
-        cur = self._conn.cursor()
-        if risk_class:
-            rows = cur.execute("""
-                SELECT * FROM investigations
-                WHERE risk_class = ?
-                ORDER BY created_at DESC LIMIT ?
-            """, (risk_class, limit)).fetchall()
-        else:
-            rows = cur.execute("""
-                SELECT * FROM investigations
-                ORDER BY created_at DESC LIMIT ?
-            """, (limit,)).fetchall()
-        return [self._row_to_inv(r) for r in rows]
+        with self._db() as cur:
+            if risk_class:
+                rows = cur.execute("""
+                    SELECT * FROM investigations
+                    WHERE risk_class = ?
+                    ORDER BY created_at DESC LIMIT ?
+                """, (risk_class, limit)).fetchall()
+            else:
+                rows = cur.execute("""
+                    SELECT * FROM investigations
+                    ORDER BY created_at DESC LIMIT ?
+                """, (limit,)).fetchall()
+            return [self._row_to_inv(r) for r in rows]
 
     def all_investigations(self) -> list[dict]:
-        cur = self._conn.cursor()
-        rows = cur.execute("SELECT * FROM investigations ORDER BY created_at ASC").fetchall()
-        return [self._row_to_inv(r) for r in rows]
+        with self._db() as cur:
+            rows = cur.execute("SELECT * FROM investigations ORDER BY created_at ASC").fetchall()
+            return [self._row_to_inv(r) for r in rows]
 
     def _row_to_inv(self, r: sqlite3.Row) -> dict:
         indicators_raw = json.loads(r["indicators_json"] or "[]")
         indicators_dict = {(item["type"], item["value"]): item["quality"] for item in indicators_raw}
         
-        # parse timestamp safely
         try:
             ts = datetime.fromisoformat(r["created_at"])
             if ts.tzinfo is None:
@@ -252,41 +270,38 @@ class Storage:
 
     # --- Reports ---
     def save_report(self, report_id: str, inv_id: str, salt_hex: str, versions: list[dict]):
-        cur = self._conn.cursor()
         now = datetime.now(timezone.utc).isoformat()
-        cur.execute("""
-            INSERT OR REPLACE INTO reports (report_id, investigation_id, salt_hex, created_at)
-            VALUES (?, ?, ?, ?)
-        """, (report_id, inv_id, salt_hex, now))
-
-        for idx, v in enumerate(versions, 1):
+        with self._db(tx=True) as cur:
             cur.execute("""
-                INSERT OR REPLACE INTO report_versions (report_id, version, body_json, commitment, chain_json, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (
-                report_id,
-                idx,
-                json.dumps(v["body"]),
-                v["commitment"],
-                json.dumps(v.get("chain")),
-                v.get("body", {}).get("created_at", now)
-            ))
+                INSERT OR REPLACE INTO reports (report_id, investigation_id, salt_hex, created_at)
+                VALUES (?, ?, ?, ?)
+            """, (report_id, inv_id, salt_hex, now))
 
-    def get_report(self, report_id: str) -> Optional[dict]:
-        cur = self._conn.cursor()
-        rep_row = cur.execute("SELECT * FROM reports WHERE report_id = ?", (report_id,)).fetchone()
-        if not rep_row:
-            return None
+            for idx, v in enumerate(versions, 1):
+                cur.execute("""
+                    INSERT OR REPLACE INTO report_versions (report_id, version, body_json, commitment, chain_json, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    report_id,
+                    idx,
+                    json.dumps(v["body"]),
+                    v["commitment"],
+                    json.dumps(v.get("chain")),
+                    v.get("body", {}).get("created_at", now)
+                ))
+
+    def _hydrate_report(self, cur: sqlite3.Cursor, rep_row: sqlite3.Row) -> dict:
         v_rows = cur.execute("""
             SELECT * FROM report_versions WHERE report_id = ? ORDER BY version ASC
-        """, (report_id,)).fetchall()
-        versions = []
-        for vr in v_rows:
-            versions.append({
+        """, (rep_row["report_id"],)).fetchall()
+        versions = [
+            {
                 "body": json.loads(vr["body_json"]),
                 "commitment": vr["commitment"],
                 "chain": json.loads(vr["chain_json"]) if vr["chain_json"] else None
-            })
+            }
+            for vr in v_rows
+        ]
         return {
             "report_id": rep_row["report_id"],
             "investigation_id": rep_row["investigation_id"],
@@ -295,116 +310,132 @@ class Storage:
             "versions": versions
         }
 
+    def get_report(self, report_id: str) -> Optional[dict]:
+        with self._db() as cur:
+            rep_row = cur.execute("SELECT * FROM reports WHERE report_id = ?", (report_id,)).fetchone()
+            return self._hydrate_report(cur, rep_row) if rep_row else None
+
+    def get_report_by_investigation(self, inv_id: str) -> Optional[dict]:
+        with self._db() as cur:
+            rep_row = cur.execute(
+                "SELECT * FROM reports WHERE investigation_id = ? ORDER BY created_at DESC LIMIT 1",
+                (inv_id,)
+            ).fetchone()
+            return self._hydrate_report(cur, rep_row) if rep_row else None
+
+    def all_reports(self) -> list[dict]:
+        with self._db() as cur:
+            rep_rows = cur.execute("SELECT * FROM reports ORDER BY created_at ASC").fetchall()
+            return [self._hydrate_report(cur, r) for r in rep_rows]
+
     # --- Website Scans ---
     def save_website_scan(self, domain: str, entry: dict):
-        cur = self._conn.cursor()
-        cur.execute("""
-            INSERT INTO website_scans (domain, scanned_at, grade, entry_json, owned)
-            VALUES (?, ?, ?, ?, ?)
-        """, (domain, entry["scanned_at"], entry["grade"], json.dumps(entry), 1 if entry.get("owned") else 0))
+        with self._db() as cur:
+            cur.execute("""
+                INSERT INTO website_scans (domain, scanned_at, grade, entry_json, owned)
+                VALUES (?, ?, ?, ?, ?)
+            """, (domain, entry["scanned_at"], entry["grade"], json.dumps(entry), 1 if entry.get("owned") else 0))
 
     def get_website_scans(self, domain: str) -> list[dict]:
-        cur = self._conn.cursor()
-        rows = cur.execute("""
-            SELECT entry_json FROM website_scans WHERE domain = ? ORDER BY scanned_at ASC
-        """, (domain,)).fetchall()
-        return [json.loads(r["entry_json"]) for r in rows]
+        with self._db() as cur:
+            rows = cur.execute("""
+                SELECT entry_json FROM website_scans WHERE domain = ? ORDER BY scanned_at ASC
+            """, (domain,)).fetchall()
+            return [json.loads(r["entry_json"]) for r in rows]
 
     # --- Monitoring Subscriptions ---
     def save_subscription(self, sub: dict):
-        cur = self._conn.cursor()
-        cur.execute("""
-            INSERT OR REPLACE INTO monitoring_subscriptions (
-                id, domain, email, interval_hours, ownership_declared, created_at, last_scan_at, last_grade, active
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            sub["id"],
-            sub["domain"],
-            sub.get("email"),
-            sub.get("interval_hours", 24),
-            1 if sub.get("ownership_declared") else 0,
-            sub.get("created_at", datetime.now(timezone.utc).isoformat()),
-            sub.get("last_scan_at"),
-            sub.get("last_grade"),
-            1 if sub.get("active", True) else 0
-        ))
+        with self._db() as cur:
+            cur.execute("""
+                INSERT OR REPLACE INTO monitoring_subscriptions (
+                    id, domain, email, interval_hours, ownership_declared, created_at, last_scan_at, last_grade, active
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                sub["id"],
+                sub["domain"],
+                sub.get("email"),
+                sub.get("interval_hours", 24),
+                1 if sub.get("ownership_declared") else 0,
+                sub.get("created_at", datetime.now(timezone.utc).isoformat()),
+                sub.get("last_scan_at"),
+                sub.get("last_grade"),
+                1 if sub.get("active", True) else 0
+            ))
 
     def list_subscriptions(self) -> list[dict]:
-        cur = self._conn.cursor()
-        rows = cur.execute("SELECT * FROM monitoring_subscriptions ORDER BY created_at DESC").fetchall()
-        return [dict(r) for r in rows]
+        with self._db() as cur:
+            rows = cur.execute("SELECT * FROM monitoring_subscriptions ORDER BY created_at DESC").fetchall()
+            return [dict(r) for r in rows]
 
     # --- Templates ---
     def save_template(self, template_id: str, minhash_list: list[int]):
-        cur = self._conn.cursor()
         now = datetime.now(timezone.utc).isoformat()
-        cur.execute("""
-            INSERT OR REPLACE INTO message_templates (id, template_id, minhash_json, first_seen)
-            VALUES (?, ?, ?, ?)
-        """, (template_id, template_id, json.dumps(minhash_list), now))
+        with self._db() as cur:
+            cur.execute("""
+                INSERT OR REPLACE INTO message_templates (id, template_id, minhash_json, first_seen)
+                VALUES (?, ?, ?, ?)
+            """, (template_id, template_id, json.dumps(minhash_list), now))
 
     def get_templates(self) -> list[tuple[str, list[int]]]:
-        cur = self._conn.cursor()
-        rows = cur.execute("SELECT template_id, minhash_json FROM message_templates").fetchall()
-        return [(r["template_id"], json.loads(r["minhash_json"])) for r in rows]
+        with self._db() as cur:
+            rows = cur.execute("SELECT template_id, minhash_json FROM message_templates").fetchall()
+            return [(r["template_id"], json.loads(r["minhash_json"])) for r in rows]
 
     # --- Certificate History ---
     def save_cert_observation(self, domain: str, cert_data: dict):
-        cur = self._conn.cursor()
         now = datetime.now(timezone.utc).isoformat()
-        cur.execute("""
-            INSERT INTO certificate_history (
-                domain, sha256, spki_sha256, issuer, subject, not_before, not_after, san_json, observed_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            domain,
-            cert_data.get("cert_sha256", ""),
-            cert_data.get("spki_sha256"),
-            cert_data.get("issuer"),
-            cert_data.get("subject"),
-            cert_data.get("not_before"),
-            cert_data.get("not_after"),
-            json.dumps(cert_data.get("san", [])),
-            now
-        ))
+        with self._db() as cur:
+            cur.execute("""
+                INSERT INTO certificate_history (
+                    domain, sha256, spki_sha256, issuer, subject, not_before, not_after, san_json, observed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                domain,
+                cert_data.get("cert_sha256", ""),
+                cert_data.get("spki_sha256"),
+                cert_data.get("issuer"),
+                cert_data.get("subject"),
+                cert_data.get("not_before"),
+                cert_data.get("not_after"),
+                json.dumps(cert_data.get("san", [])),
+                now
+            ))
 
     def get_cert_history(self, domain: str) -> list[dict]:
-        cur = self._conn.cursor()
-        rows = cur.execute("""
-            SELECT * FROM certificate_history WHERE domain = ? ORDER BY observed_at DESC
-        """, (domain,)).fetchall()
-        out = []
-        for r in rows:
-            d = dict(r)
-            d["san"] = json.loads(d["san_json"] or "[]")
-            out.append(d)
-        return out
+        with self._db() as cur:
+            rows = cur.execute("""
+                SELECT * FROM certificate_history WHERE domain = ? ORDER BY observed_at DESC
+            """, (domain,)).fetchall()
+            out = []
+            for r in rows:
+                d = dict(r)
+                d["san"] = json.loads(d["san_json"] or "[]")
+                out.append(d)
+            return out
 
     # --- Users & Auth ---
     def save_user(self, user: dict):
-        cur = self._conn.cursor()
-        cur.execute("""
-            INSERT OR REPLACE INTO users (id, username, password_hash, role, created_at, active)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (
-            user["id"],
-            user["username"],
-            user["password_hash"],
-            user.get("role", "viewer"),
-            user.get("created_at", datetime.now(timezone.utc).isoformat()),
-            1 if user.get("active", True) else 0
-        ))
+        with self._db() as cur:
+            cur.execute("""
+                INSERT OR REPLACE INTO users (id, username, password_hash, role, created_at, active)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                user["id"],
+                user["username"],
+                user["password_hash"],
+                user.get("role", "viewer"),
+                user.get("created_at", datetime.now(timezone.utc).isoformat()),
+                1 if user.get("active", True) else 0
+            ))
 
     def get_user_by_username(self, username: str) -> Optional[dict]:
-        cur = self._conn.cursor()
-        row = cur.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
-        if not row:
-            return None
-        return dict(row)
+        with self._db() as cur:
+            row = cur.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+            return dict(row) if row else None
 
     def list_users(self) -> list[dict]:
-        cur = self._conn.cursor()
-        rows = cur.execute("SELECT id, username, role, created_at, active FROM users ORDER BY created_at ASC").fetchall()
-        return [dict(r) for r in rows]
+        with self._db() as cur:
+            rows = cur.execute("SELECT id, username, role, created_at, active FROM users ORDER BY created_at ASC").fetchall()
+            return [dict(r) for r in rows]
 
 

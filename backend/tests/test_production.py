@@ -277,3 +277,66 @@ class TestProductionSafetyGuards:
         assert len(_hits) < 100
         _hits.clear()
 
+    def test_report_verification_survives_restart(self, tmp_path):
+        from app.orchestrator import Sentinel
+        db = tmp_path / "restart.db"
+        s1 = Sentinel(offline=True, storage=Storage(db))
+        inv = s1.investigate_message("Your KYC is suspended, verify at http://sbi-kyc-update.top/login")
+        r1 = s1.make_report(inv["id"])
+        s1.commit_report(r1["report_id"])
+
+        s2 = Sentinel(offline=True, storage=Storage(db))
+        assert s2.verify_report(r1["report_id"])["status"] == "MATCH"
+        r2 = s2.make_report(inv["id"])
+        assert r2["report_id"] == r1["report_id"]
+        assert len(r2["versions"]) == 2
+        assert r2["versions"][-1]["body"]["version"] == 2
+
+    def test_storage_handles_concurrent_writes(self, tmp_path):
+        from concurrent.futures import ThreadPoolExecutor
+        st = Storage(tmp_path / "concurrent.db")
+
+        def save_one(i: int):
+            st.save_investigation({"id": f"inv-{i}", "type": "url", "input": f"https://example{i}.com",
+                                   "ts": "2026-11-10T00:00:00+00:00",
+                                   "indicators": {("host", f"example{i}.com"): "primary"}, "risk": {"score": i % 100}})
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(save_one, range(24)))
+        assert len(st.all_investigations()) == 24
+
+    def test_background_cleanup_uses_utc(self):
+        import time
+        from app import background
+        recent = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        background._jobs["recent-utc-job"] = {"status": "completed", "completed_at": recent}
+        background._cleanup_old_jobs()
+        assert "recent-utc-job" in background._jobs
+        background._jobs.pop("recent-utc-job", None)
+
+    def test_monitoring_list_requires_auth(self):
+        from fastapi.routing import APIRoute
+        route = next(r for r in app.routes if isinstance(r, APIRoute) and r.path == "/api/v1/monitoring" and "GET" in r.methods)
+        assert len(route.dependant.dependencies) == 1
+        role_dep = route.dependant.dependencies[0]
+        user_dep = role_dep.dependencies[0].call
+        with pytest.raises(HTTPException) as unauth:
+            user_dep(user=None)
+        assert unauth.value.status_code == 401
+        with pytest.raises(HTTPException) as forbid:
+            role_dep.call(user={"username": "v", "role": "viewer"})
+        assert forbid.value.status_code == 403
+
+    def test_correlation_inverted_index_finds_shared_edges(self):
+        from datetime import datetime, timezone
+        from app.services.correlation import build_edges
+        ts = datetime.now(timezone.utc)
+        invs = [
+            {"id": "a", "ts": ts, "submitter": "u1", "indicators": {("phone", "+919000000001"): "verified", ("host", "evil.top"): "direct"}},
+            {"id": "b", "ts": ts, "submitter": "u2", "indicators": {("phone", "+919000000001"): "verified", ("host", "evil.top"): "direct"}},
+            {"id": "c", "ts": ts, "submitter": "u3", "indicators": {("host", "unrelated.org"): "direct"}},
+        ]
+        edges = build_edges(invs)
+        assert len(edges) == 1
+        assert {edges[0]["a"], edges[0]["b"]} == {"a", "b"}
+
+

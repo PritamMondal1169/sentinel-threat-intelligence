@@ -82,11 +82,6 @@ def rate_limit(limit: int):
     return dep
 
 
-def auth(request: Request):
-    """Backward compatible auth alias enforcing analyst/admin privileges."""
-    return require_role("analyst")
-
-
 @app.exception_handler(HTTPException)
 async def http_err(_, exc):
     d = exc.detail if isinstance(exc.detail, dict) else {"code": "ERROR", "message": str(exc.detail)}
@@ -376,7 +371,7 @@ def create_monitoring(b: MonitoringIn):
     return S.create_monitoring_subscription(b.domain, b.email, b.interval_hours)
 
 
-@app.get("/api/v1/monitoring")
+@app.get("/api/v1/monitoring", dependencies=[Depends(require_role("analyst"))])
 def list_monitoring():
     return S.list_monitoring_subscriptions()
 

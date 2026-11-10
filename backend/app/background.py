@@ -5,6 +5,7 @@ import concurrent.futures
 import logging
 import threading
 import time
+import calendar
 import uuid
 from typing import Any, Callable, Optional
 
@@ -81,7 +82,7 @@ def _cleanup_old_jobs():
             t_str = data.get("completed_at")
             if t_str:
                 try:
-                    c_ts = time.mktime(time.strptime(t_str, "%Y-%m-%dT%H:%M:%SZ"))
+                    c_ts = calendar.timegm(time.strptime(t_str, "%Y-%m-%dT%H:%M:%SZ"))
                     if now_ts - c_ts > 3600:
                         to_delete.append(jid)
                 except Exception:

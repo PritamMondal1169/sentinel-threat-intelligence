@@ -143,10 +143,12 @@ class GoogleSafeBrowsing:
             except Exception:
                 pass  # Fall back to local Safe Browsing cache
 
-        hit = (url.lower() in self.cache or fqdn.lower() in self.cache or
-               any(k in fqdn.lower() for k in ["sbi-kyc", "hdfc-rewards", "indiapost-redelivery"]))
-        detail = "Matched: SOCIAL_ENGINEERING (Safe Browsing Intelligence DB)" if hit else "Safe Browsing active (Verified clean)"
-        return verdict(self.name, "listed" if hit else "clean", 0.95 if key else 0.90, detail)
+        hit = url.lower() in self.cache or fqdn.lower() in self.cache
+        if hit:
+            return verdict(self.name, "listed", 0.95 if key else 0.90, "Matched: SOCIAL_ENGINEERING (Safe Browsing Intelligence DB)")
+        if self.offline:
+            return verdict(self.name, "clean", 0.90, "Safe Browsing offline cache: no threat match")
+        return verdict(self.name, "unavailable", 0.6, "Google Safe Browsing live API unavailable (no GSB_API_KEY or upstream error)")
 
 
 class URLhausFeed:
@@ -190,8 +192,11 @@ class URLhausFeed:
                 pass  # Fall through to cached snapshot
 
         hit = url.lower() in self.cached_offline or fqdn.lower() in self.cached_offline
-        detail = "URLhaus intelligence database hit (malware/phishing)" if hit else "URLhaus active: verified clean"
-        return verdict(self.name, "listed" if hit else "clean", 0.88, detail)
+        if hit:
+            return verdict(self.name, "listed", 0.88, "URLhaus intelligence database hit (malware/phishing)")
+        if self.offline:
+            return verdict(self.name, "clean", 0.88, "URLhaus offline snapshot: no match")
+        return verdict(self.name, "unavailable", 0.6, "URLhaus upstream unavailable (not in local snapshot)")
 
 
 class PhishTankFeed:
@@ -300,10 +305,12 @@ class VirusTotalFeed:
             except Exception:
                 pass
 
-        hit = (url.lower() in self.cache or fqdn.lower() in self.cache or
-               any(k in fqdn.lower() for k in ["sbi-kyc", "hdfc-rewards", "indiapost-redelivery"]))
-        detail = "8 security engines detected malicious (VirusTotal Community DB)" if hit else "VirusTotal Multi-Engine active (Clean)"
-        return verdict(self.name, "listed" if hit else "clean", 0.95 if api_key else 0.90, detail)
+        hit = url.lower() in self.cache or fqdn.lower() in self.cache
+        if hit:
+            return verdict(self.name, "listed", 0.95 if api_key else 0.90, "8 security engines detected malicious (VirusTotal Community DB)")
+        if self.offline:
+            return verdict(self.name, "clean", 0.90, "VirusTotal offline cache: no threat match")
+        return verdict(self.name, "unavailable", 0.6, "VirusTotal live API unavailable (no VT_API_KEY or upstream error)")
 
 
 def default_feeds(offline: bool = False):
