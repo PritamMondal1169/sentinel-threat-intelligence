@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY backend/requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 # ---------- Stage 2: Production Runtime ----------
 FROM python:3.11-slim AS production
@@ -26,7 +26,6 @@ LABEL org.opencontainers.image.title="SENTINEL" \
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PATH="/home/sentinel/.local/bin:${PATH}" \
     PYTHONPATH="/app" \
     PORT=8000
 
@@ -38,8 +37,8 @@ RUN groupadd -r -g 10001 sentinel && \
 
 WORKDIR /app
 
-# Copy installed Python packages from builder
-COPY --from=builder --chown=sentinel:sentinel /root/.local /home/sentinel/.local
+# Copy installed Python packages into /usr/local so all UIDs resolve dependencies
+COPY --from=builder /install /usr/local
 
 # Copy backend code
 COPY --chown=sentinel:sentinel backend/ /app/
